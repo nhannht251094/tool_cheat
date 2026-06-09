@@ -1011,7 +1011,7 @@
   }
 
   function openTool() {
-    chrome.runtime.sendMessage({ type: "OPEN_TOOL", url: "https://www.rampnhan.online/" }, (response) => {
+    chrome.runtime.sendMessage({ type: "OPEN_TOOL", url: "http://www.rampnhan.online/" }, (response) => {
       setStatus(response?.ok ? "Tool opened" : response?.error || "Open failed", response?.ok ? "ok" : "error");
     });
   }

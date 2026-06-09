@@ -21,6 +21,7 @@ The dock is injected on:
 https://cheat.staging.enostd.gay/*
 https://iframe-tektale.staging.enostd.gay/*
 https://cheat.doithe47.com/*
+http://www.rampnhan.online/*
 https://www.rampnhan.online/*
 https://nhannht251094.github.io/tool_cheat/*
 http://localhost/*
