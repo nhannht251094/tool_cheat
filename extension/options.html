@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Slot Matrix Dock Options</title>
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header>
+        <div>
+          <span>Chrome Extension</span>
+          <h1>Slot Matrix Dock</h1>
+        </div>
+        <button id="save">Save config</button>
+      </header>
+
+      <section class="panel">
+        <label>
+          Endpoint
+          <input id="endpoint" />
+        </label>
+        <div class="grid">
+          <label>
+            serviceId
+            <input id="serviceId" />
+          </label>
+          <label>
+            userId
+            <input id="userId" />
+          </label>
+          <label>
+            currency
+            <input id="currency" />
+          </label>
+        </div>
+        <label>
+          matrixData
+          <textarea id="matrixData"></textarea>
+        </label>
+        <label>
+          tableFormat
+          <input id="tableFormat" />
+        </label>
+        <label>
+          powerUpSymbolCode
+          <textarea id="powerUpSymbolCode"></textarea>
+        </label>
+        <label>
+          Bearer token / optional
+          <input id="bearerToken" />
+        </label>
+      </section>
+
+      <p id="status">Ready</p>
+    </main>
+    <script src="options.js"></script>
+  </body>
+</html>
