@@ -1011,7 +1011,7 @@
   }
 
   function openTool() {
-    chrome.runtime.sendMessage({ type: "OPEN_TOOL", url: "http://127.0.0.1:5173/" }, (response) => {
+    chrome.runtime.sendMessage({ type: "OPEN_TOOL", url: "https://nhannht251094.github.io/tool_cheat/" }, (response) => {
       setStatus(response?.ok ? "Tool opened" : response?.error || "Open failed", response?.ok ? "ok" : "error");
     });
   }

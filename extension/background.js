@@ -168,7 +168,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   if (message?.type === "OPEN_TOOL") {
     chrome.tabs
-      .create({ url: message.url || "http://127.0.0.1:5173/" })
+      .create({ url: message.url || "https://nhannht251094.github.io/tool_cheat/" })
       .then(() => sendResponse({ ok: true }))
       .catch((error) =>
         sendResponse({ ok: false, error: error instanceof Error ? error.message : "Open failed" })
