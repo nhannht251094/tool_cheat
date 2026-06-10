@@ -1,5 +1,6 @@
 import {
   Copy,
+  Download,
   Edit3,
   FileText,
   GripVertical,
@@ -29,6 +30,7 @@ export function OperationsPanel() {
     id: string;
     position: "before" | "after";
   } | null>(null);
+  const [nameDrafts, setNameDrafts] = useState<Record<string, string>>({});
   const {
     projects,
     activeProjectId,
@@ -78,6 +80,32 @@ export function OperationsPanel() {
     } finally {
       if (inputRef.current) inputRef.current.value = "";
     }
+  }
+
+  function updateNameDraft(id: string, value: string) {
+    setNameDrafts((current) => ({ ...current, [id]: value }));
+    if (value.trim()) renamePreset(id, value);
+  }
+
+  function finishNameEdit(id: string, fallbackName: string) {
+    const draft = nameDrafts[id];
+    if (draft === undefined) return;
+    const nextName = draft.trim();
+    if (nextName) renamePreset(id, nextName);
+    else renamePreset(id, fallbackName);
+    setNameDrafts((current) => {
+      const next = { ...current };
+      delete next[id];
+      return next;
+    });
+  }
+
+  function revertNameEdit(id: string) {
+    setNameDrafts((current) => {
+      const next = { ...current };
+      delete next[id];
+      return next;
+    });
   }
 
   return (
@@ -153,7 +181,28 @@ export function OperationsPanel() {
             <div className="operation-main">
               <strong>
                 <FileText size={16} />
-                <span>{form.name}</span>
+                <input
+                  aria-label="Form name"
+                  readOnly={form.id.startsWith("fallback-")}
+                  title={form.id.startsWith("fallback-") ? "Save a form before renaming" : "Click to rename"}
+                  value={nameDrafts[form.id] ?? form.name}
+                  onChange={(event) => updateNameDraft(form.id, event.target.value)}
+                  onBlur={() => finishNameEdit(form.id, form.name)}
+                  onClick={(event) => event.stopPropagation()}
+                  onFocus={(event) => {
+                    event.stopPropagation();
+                    setNameDrafts((current) => ({ ...current, [form.id]: current[form.id] ?? form.name }));
+                    event.currentTarget.select();
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") event.currentTarget.blur();
+                    if (event.key === "Escape") {
+                      event.stopPropagation();
+                      revertNameEdit(form.id);
+                      event.currentTarget.blur();
+                    }
+                  }}
+                />
                 {form.name === "SuperMegaWin" && <i />}
               </strong>
               <div>
@@ -214,6 +263,10 @@ export function OperationsPanel() {
       <footer className="operations-footer">
         <button className="export" onClick={exportProjects}>⇩ Export</button>
         <button onClick={() => inputRef.current?.click()}>↥ Import</button>
+        <a href="/slot-matrix-dock-extension.zip" download>
+          <Download size={14} />
+          Dock Ext
+        </a>
         <input
           ref={inputRef}
           hidden

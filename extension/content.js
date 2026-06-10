@@ -1,11 +1,40 @@
 (async function bootSlotMatrixDock() {
   if (window.__slotMatrixDockMounted) return;
-  window.__slotMatrixDockMounted = true;
 
-  const host = document.createElement("div");
-  host.id = "slot-matrix-dock-host";
-  const shadow = host.attachShadow({ mode: "open" });
-  document.documentElement.appendChild(host);
+  const DEFAULT_DOCK_ALLOWED_SITES = [
+    "https://cheat.staging.enostd.gay/*",
+    "https://iframe-tektale.staging.enostd.gay/*",
+    "https://cheat.doithe47.com/*",
+    "http://www.rampnhan.online/*",
+    "https://www.rampnhan.online/*",
+    "https://nhannht251094.github.io/tool_cheat/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ];
+
+  function sitePatternMatches(pattern, url) {
+    const value = String(pattern || "").trim();
+    if (!value) return false;
+    const normalizedUrl = url.href.replace(/\/$/, "");
+    const normalizedOrigin = url.origin.replace(/\/$/, "");
+    const normalizedPattern = value.replace(/\/$/, "");
+    if (!value.includes("*")) {
+      return normalizedUrl.startsWith(normalizedPattern) || normalizedOrigin === normalizedPattern;
+    }
+    const escaped = value
+      .replace(/[.+?^${}()|[\]\\]/g, "\\$&")
+      .replace(/\*/g, ".*");
+    return new RegExp(`^${escaped}$`).test(url.href);
+  }
+
+  function dockAllowed(storage) {
+    if (sessionStorage.getItem("slotMatrixDockOpenOnce") === "true") return true;
+    if (storage.dockEnabled === false) return false;
+    const sites = Array.isArray(storage.dockAllowedSites)
+      ? storage.dockAllowedSites
+      : DEFAULT_DOCK_ALLOWED_SITES;
+    return sites.some((site) => sitePatternMatches(site, window.location));
+  }
 
   const state = {
     pinned: true,
@@ -25,6 +54,8 @@
     projects: [],
     currentFormId: "",
     currentProjectId: "",
+    userId: "",
+    userIds: [],
     dockSize: "md",
     dockOrientation: "vertical"
   };
@@ -40,8 +71,21 @@
     dockFormsOpen: false,
     dockProjectsOpen: false,
     currentFormId: "",
-    currentProjectId: ""
+    currentProjectId: "",
+    userId: "",
+    dockUserId: "",
+    dockUserIds: [],
+    dockEnabled: true,
+    dockAllowedSites: DEFAULT_DOCK_ALLOWED_SITES
   });
+  if (!dockAllowed(storage)) return;
+
+  window.__slotMatrixDockMounted = true;
+
+  const host = document.createElement("div");
+  host.id = "slot-matrix-dock-host";
+  const shadow = host.attachShadow({ mode: "open" });
+  document.documentElement.appendChild(host);
   state.pinned = storage.dockPinned;
   state.collapsed = storage.dockCollapsed;
   state.position = storage.dockPosition;
@@ -61,6 +105,8 @@
   }
   state.currentFormId = storage.currentFormId;
   state.currentProjectId = storage.currentProjectId;
+  state.userId = storage.dockUserId || storage.userId || "";
+  state.userIds = Array.isArray(storage.dockUserIds) ? storage.dockUserIds : [];
 
   chrome.runtime.sendMessage({ type: "GET_FORMS" }, (response) => {
     if (response?.ok) {
@@ -536,6 +582,7 @@
         top: 0;
         display: grid;
         gap: 8px;
+        width: 188px;
         padding: 9px;
         border: 1px solid rgba(255, 255, 255, 0.12);
         border-radius: 18px;
@@ -547,7 +594,7 @@
       }
 
       .dock.horizontal .settings-popover {
-        grid-auto-flow: column;
+        grid-auto-flow: row;
       }
 
       .settings-popover.open-right {
@@ -556,6 +603,93 @@
 
       .settings-popover.open-left {
         right: calc(100% + 10px);
+      }
+
+      .settings-tools {
+        display: grid;
+        grid-template-columns: repeat(3, var(--btn-size));
+        gap: 8px;
+      }
+
+      .settings-user {
+        display: grid;
+        gap: 5px;
+        color: #8b8b8b;
+        font: 800 10px/1.1 system-ui, sans-serif;
+        text-transform: uppercase;
+      }
+
+      .settings-user input {
+        all: unset;
+        box-sizing: border-box;
+        min-width: 0;
+        height: 34px;
+        padding: 0 9px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 10px;
+        color: #eeeeee;
+        background: rgba(28, 28, 28, 0.94);
+        font: 800 12px/1 system-ui, sans-serif;
+        text-transform: none;
+      }
+
+      .settings-user input:focus {
+        border-color: rgba(255, 255, 255, 0.26);
+        background: rgba(38, 38, 38, 0.98);
+      }
+
+      .settings-user-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 5px;
+        margin-top: 1px;
+      }
+
+      .settings-user-chip {
+        display: inline-flex;
+        max-width: 100%;
+        overflow: hidden;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 8px;
+        background: rgba(35, 35, 35, 0.9);
+      }
+
+      .settings-user-chip button {
+        width: auto;
+        height: 24px;
+        padding: 0 7px;
+        border: 0;
+        border-radius: 0;
+        color: #d7d7d7;
+        background: transparent;
+        font: 800 10px/1 system-ui, sans-serif;
+        text-transform: none;
+      }
+
+      .settings-user-chip.active {
+        border-color: #ededed;
+        background: #ededed;
+      }
+
+      .settings-user-chip.active button {
+        color: #101010;
+      }
+
+      .settings-user-chip .remove-user {
+        width: 22px;
+        padding: 0;
+        border-left: 1px solid rgba(255, 255, 255, 0.12);
+        color: #9b9b9b;
+        font-size: 13px;
+      }
+
+      .settings-user-chip.active .remove-user {
+        border-left-color: rgba(0, 0, 0, 0.14);
+        color: #303030;
+      }
+
+      .settings-user-chip .remove-user:hover {
+        color: #ff6b63;
       }
 
       .form-item,
@@ -697,6 +831,20 @@
     return icons[name];
   }
 
+  function escapeAttribute(value) {
+    return String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/"/g, "&quot;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  }
+
+  function userIdHistory() {
+    return Array.from(
+      new Set([state.userId, ...state.userIds].map((id) => String(id || "").trim()).filter(Boolean))
+    ).slice(0, 6);
+  }
+
   function render() {
     const existingFormsPopover = shadow.querySelector(".forms-popover");
     if (existingFormsPopover && !state.scrollActiveOnRender) {
@@ -733,9 +881,38 @@
         ${
           state.settingsOpen
             ? `<div class="settings-popover ${settingsDirection}">
-                <button data-action="open-tool" title="Open tool">${icon("external")}</button>
-                <button class="size" data-action="size" title="Resize dock">${state.dockSize.toUpperCase()}</button>
-                <button class="rotate" data-action="rotate" title="Rotate dock">${icon("rotate")}</button>
+                <div class="settings-tools">
+                  <button data-action="open-tool" title="Open tool">${icon("external")}</button>
+                  <button class="size" data-action="size" title="Resize dock">${state.dockSize.toUpperCase()}</button>
+                  <button class="rotate" data-action="rotate" title="Rotate dock">${icon("rotate")}</button>
+                </div>
+                <label class="settings-user">
+                  Change User ID
+                  <input data-action="user-id" value="${escapeAttribute(state.userId)}" placeholder="game_rampusd01" />
+                  ${
+                    userIdHistory().length
+                      ? `<div class="settings-user-list">
+                          ${userIdHistory()
+                            .map(
+                              (userId) => `
+                                <span class="settings-user-chip ${userId === state.userId ? "active" : ""}">
+                                  <button
+                                    data-user-id-choice="${escapeAttribute(userId)}"
+                                    title="${escapeAttribute(userId)}"
+                                  >${escapeAttribute(userId)}</button>
+                                  <button
+                                    class="remove-user"
+                                    data-user-id-delete="${escapeAttribute(userId)}"
+                                    title="Remove ${escapeAttribute(userId)}"
+                                  >×</button>
+                                </span>
+                              `
+                            )
+                            .join("")}
+                        </div>`
+                      : ""
+                  }
+                </label>
               </div>`
             : ""
         }
@@ -789,6 +966,20 @@
     shadow.querySelector('[data-action="open-tool"]')?.addEventListener("click", openTool);
     shadow.querySelector('[data-action="size"]')?.addEventListener("click", cycleSize);
     shadow.querySelector('[data-action="rotate"]')?.addEventListener("click", toggleOrientation);
+    shadow.querySelector('[data-action="user-id"]')?.addEventListener("input", updateUserId);
+    shadow.querySelector('[data-action="user-id"]')?.addEventListener("blur", rememberCurrentUserId);
+    shadow.querySelector('[data-action="user-id"]')?.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") event.currentTarget.blur();
+    });
+    shadow.querySelectorAll("[data-user-id-choice]").forEach((button) => {
+      button.addEventListener("click", () => chooseUserId(button.getAttribute("data-user-id-choice")));
+    });
+    shadow.querySelectorAll("[data-user-id-delete]").forEach((button) => {
+      button.addEventListener("click", (event) => {
+        event.stopPropagation();
+        void deleteUserId(button.getAttribute("data-user-id-delete"));
+      });
+    });
     shadow.querySelector('[data-action="send"]')?.addEventListener("click", sendForm);
     shadow.querySelectorAll("[data-form-id]").forEach((button) => {
       button.addEventListener("click", () => selectForm(button.getAttribute("data-form-id")));
@@ -1016,6 +1207,58 @@
     });
   }
 
+  async function updateUserId(event) {
+    state.userId = event.currentTarget.value;
+    await chrome.storage.local.set({
+      dockUserId: state.userId,
+      userId: state.userId
+    });
+    setStatus(state.userId.trim() ? `User ${state.userId.trim()}` : "Using form user", "ok");
+  }
+
+  function nextUserIds(userId) {
+    const value = String(userId || "").trim();
+    if (!value) return state.userIds;
+    return [value, ...state.userIds.filter((id) => id !== value)].slice(0, 6);
+  }
+
+  async function rememberCurrentUserId() {
+    state.userIds = nextUserIds(state.userId);
+    await chrome.storage.local.set({
+      dockUserId: state.userId,
+      userId: state.userId,
+      dockUserIds: state.userIds
+    });
+    render();
+  }
+
+  async function chooseUserId(userId) {
+    if (!userId) return;
+    state.userId = userId;
+    state.userIds = nextUserIds(userId);
+    await chrome.storage.local.set({
+      dockUserId: state.userId,
+      userId: state.userId,
+      dockUserIds: state.userIds
+    });
+    setStatus(`User ${state.userId}`, "ok");
+    render();
+  }
+
+  async function deleteUserId(userId) {
+    const value = String(userId || "").trim();
+    if (!value) return;
+    state.userIds = state.userIds.filter((id) => id !== value);
+    if (state.userId === value) state.userId = "";
+    await chrome.storage.local.set({
+      dockUserId: state.userId,
+      userId: state.userId,
+      dockUserIds: state.userIds
+    });
+    setStatus(state.userId ? `User ${state.userId}` : "Using form user", state.userId ? "ok" : "");
+    render();
+  }
+
   async function cycleSize() {
     const sizes = ["xs", "sm", "md", "lg"];
     const next = sizes[(sizes.indexOf(state.dockSize) + 1) % sizes.length];
@@ -1102,6 +1345,10 @@
   }
 
   async function sendForm() {
+    if (state.userId.trim()) {
+      state.userIds = nextUserIds(state.userId);
+      await chrome.storage.local.set({ dockUserIds: state.userIds });
+    }
     state.sending = true;
     setStatus("Sending...");
     chrome.runtime.sendMessage({ type: "SEND_FORM" }, (response) => {

@@ -10,6 +10,61 @@ const DEFAULT_CONFIG = {
   bearerToken: ""
 };
 
+const DEFAULT_DOCK_ALLOWED_SITES = [
+  "https://cheat.staging.enostd.gay/*",
+  "https://iframe-tektale.staging.enostd.gay/*",
+  "https://cheat.doithe47.com/*",
+  "http://www.rampnhan.online/*",
+  "https://www.rampnhan.online/*",
+  "https://nhannht251094.github.io/tool_cheat/*",
+  "http://localhost/*",
+  "http://127.0.0.1/*"
+];
+
+const DEFAULT_DOCK_CONFIG = {
+  dockEnabled: true,
+  dockAllowedSites: DEFAULT_DOCK_ALLOWED_SITES
+};
+
+function sitePatternFromUrl(url) {
+  try {
+    const parsed = new URL(url);
+    if (!["http:", "https:"].includes(parsed.protocol)) return "";
+    return `${parsed.origin}/*`;
+  } catch {
+    return "";
+  }
+}
+
+async function getDockConfig() {
+  const stored = await chrome.storage.local.get(DEFAULT_DOCK_CONFIG);
+  return { ...DEFAULT_DOCK_CONFIG, ...stored };
+}
+
+async function saveAllowedSite(pattern) {
+  const value = String(pattern || "").trim();
+  if (!value) return { ok: false, error: "Missing URL pattern" };
+  const config = await getDockConfig();
+  const sites = Array.isArray(config.dockAllowedSites) ? config.dockAllowedSites : [];
+  const nextSites = [value, ...sites.filter((site) => site !== value)];
+  await chrome.storage.local.set({
+    dockEnabled: true,
+    dockAllowedSites: nextSites
+  });
+  return { ok: true, dockAllowedSites: nextSites };
+}
+
+async function openDockOnTab(tabId) {
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    func: () => {
+      sessionStorage.setItem("slotMatrixDockOpenOnce", "true");
+      window.location.reload();
+    }
+  });
+  return { ok: true };
+}
+
 const DEFAULT_FORMS = [
   {
     id: "inputed-sample",
@@ -35,8 +90,16 @@ const DEFAULT_PROJECTS = [
 ];
 
 async function getConfig() {
-  const stored = await chrome.storage.local.get(DEFAULT_CONFIG);
-  return { ...DEFAULT_CONFIG, ...stored };
+  const stored = await chrome.storage.local.get({
+    ...DEFAULT_CONFIG,
+    ...DEFAULT_DOCK_CONFIG,
+    dockUserId: ""
+  });
+  const config = { ...DEFAULT_CONFIG, ...DEFAULT_DOCK_CONFIG, ...stored };
+  const dockUserId = String(config.dockUserId || "").trim();
+  if (dockUserId) config.userId = dockUserId;
+  delete config.dockUserId;
+  return config;
 }
 
 async function getForms(projectId) {
@@ -76,7 +139,17 @@ async function getProjects() {
 
 function toFormBody(config) {
   const params = new URLSearchParams();
-  const skipKeys = new Set(["endpoint", "bearerToken", "token", "currency", "currentFormId"]);
+  const skipKeys = new Set([
+    "endpoint",
+    "bearerToken",
+    "token",
+    "currency",
+    "currentFormId",
+    "dockUserId",
+    "dockUserIds",
+    "dockEnabled",
+    "dockAllowedSites"
+  ]);
   Object.entries(config).forEach(([key, value]) => {
     if (skipKeys.has(key) || value == null || value === "") return;
     if (typeof value === "object") return;
@@ -172,6 +245,63 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       .then(() => sendResponse({ ok: true }))
       .catch((error) =>
         sendResponse({ ok: false, error: error instanceof Error ? error.message : "Open failed" })
+      );
+    return true;
+  }
+
+  if (message?.type === "GET_POPUP_STATE") {
+    Promise.all([getDockConfig(), chrome.tabs.query({ active: true, currentWindow: true })])
+      .then(([config, tabs]) => {
+        const tab = tabs[0];
+        const suggestedPattern = tab?.url ? sitePatternFromUrl(tab.url) : "";
+        sendResponse({
+          ok: true,
+          url: tab?.url || "",
+          suggestedPattern,
+          dockEnabled: config.dockEnabled !== false,
+          dockAllowedSites: config.dockAllowedSites
+        });
+      })
+      .catch((error) =>
+        sendResponse({ ok: false, error: error instanceof Error ? error.message : "Popup failed" })
+      );
+    return true;
+  }
+
+  if (message?.type === "OPEN_DOCK_ON_TAB") {
+    chrome.tabs
+      .query({ active: true, currentWindow: true })
+      .then((tabs) => {
+        const tabId = tabs[0]?.id;
+        if (!tabId) throw new Error("No active tab");
+        return openDockOnTab(tabId);
+      })
+      .then(sendResponse)
+      .catch((error) =>
+        sendResponse({ ok: false, error: error instanceof Error ? error.message : "Open dock failed" })
+      );
+    return true;
+  }
+
+  if (message?.type === "ADD_ALLOWED_SITE") {
+    saveAllowedSite(message.pattern)
+      .then(async (result) => {
+        const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (tabs[0]?.id) await chrome.tabs.reload(tabs[0].id);
+        sendResponse(result);
+      })
+      .catch((error) =>
+        sendResponse({ ok: false, error: error instanceof Error ? error.message : "Save site failed" })
+      );
+    return true;
+  }
+
+  if (message?.type === "OPEN_OPTIONS") {
+    chrome.runtime
+      .openOptionsPage()
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) =>
+        sendResponse({ ok: false, error: error instanceof Error ? error.message : "Options failed" })
       );
     return true;
   }

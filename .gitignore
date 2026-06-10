@@ -3,6 +3,8 @@ dist/
 .DS_Store
 .env
 .env.*
+.codegraph/
+.gemini/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

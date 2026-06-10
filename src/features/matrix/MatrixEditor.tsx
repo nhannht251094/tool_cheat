@@ -12,7 +12,7 @@ import {
   Wand2,
   Zap
 } from "lucide-react";
-import type { ClipboardEvent, KeyboardEvent } from "react";
+import { useState, type ClipboardEvent, type KeyboardEvent } from "react";
 import { Button } from "../../components/ui/Button";
 import { Panel } from "../../components/ui/Panel";
 import { matrixToRaw, pasteToMatrix } from "../../lib/matrix";
@@ -25,6 +25,8 @@ const sizes = [
 ];
 
 export function MatrixEditor() {
+  const [cellDrafts, setCellDrafts] = useState<Record<string, string>>({});
+  const [cellOriginals, setCellOriginals] = useState<Record<string, string>>({});
   const {
     rows,
     cols,
@@ -47,6 +49,42 @@ export function MatrixEditor() {
     redo,
     savePreset
   } = useStudioStore();
+
+  function cellKey(row: number, col: number) {
+    return `${row}-${col}`;
+  }
+
+  function beginCellEdit(row: number, col: number, value: string) {
+    const key = cellKey(row, col);
+    setSelectedCell(row, col);
+    setCellDrafts((current) => ({ ...current, [key]: current[key] ?? value }));
+    setCellOriginals((current) => ({ ...current, [key]: current[key] ?? value }));
+  }
+
+  function updateCellDraft(row: number, col: number, value: string) {
+    const key = cellKey(row, col);
+    setCellDrafts((current) => ({ ...current, [key]: value }));
+    if (value.trim()) setCell(row, col, value);
+  }
+
+  function finishCellEdit(row: number, col: number) {
+    const key = cellKey(row, col);
+    const draft = cellDrafts[key];
+    if (draft === undefined) return;
+    const original = cellOriginals[key] ?? matrix[row]?.[col] ?? "";
+    if (draft.trim()) setCell(row, col, draft);
+    else setCell(row, col, original);
+    setCellDrafts((current) => {
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+    setCellOriginals((current) => {
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+  }
 
   function handleKeyDown(event: KeyboardEvent<HTMLInputElement>, row: number, col: number) {
     const moves: Record<string, [number, number]> = {
@@ -216,9 +254,10 @@ export function MatrixEditor() {
                     selectedCell.row === rowIndex && selectedCell.col === colIndex ? "selected" : ""
                   }
                   key={`${rowIndex}-${colIndex}`}
-                  value={cell}
-                  onFocus={() => setSelectedCell(rowIndex, colIndex)}
-                  onChange={(event) => setCell(rowIndex, colIndex, event.target.value)}
+                  value={cellDrafts[cellKey(rowIndex, colIndex)] ?? cell}
+                  onFocus={() => beginCellEdit(rowIndex, colIndex, cell)}
+                  onBlur={() => finishCellEdit(rowIndex, colIndex)}
+                  onChange={(event) => updateCellDraft(rowIndex, colIndex, event.target.value)}
                   onKeyDown={(event) => handleKeyDown(event, rowIndex, colIndex)}
                   onPaste={handlePaste}
                 />

@@ -1,6 +1,5 @@
-import Editor from "@monaco-editor/react";
 import { useMutation } from "@tanstack/react-query";
-import { Clock, Play, RotateCcw, Wifi } from "lucide-react";
+import { Play } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { Panel } from "../../components/ui/Panel";
 import { buildSlotFormPayload, toUrlEncoded } from "../../lib/slotPayload";
@@ -14,15 +13,11 @@ export function ApiPanel() {
     cols,
     apiRequest,
     formValues,
-    lastResponse,
-    requestLogs,
     updateApiRequest,
-    addRequestLog,
-    replayLog
+    addRequestLog
   } = useStudioStore();
 
   const payload = buildSlotFormPayload(matrix, rows, cols, formValues);
-  const urlEncodedPayload = toUrlEncoded(payload).toString();
 
   const mutation = useMutation({
     mutationFn: async () => {
@@ -71,14 +66,6 @@ export function ApiPanel() {
     },
     onSuccess: (response) => addRequestLog(response, payload)
   });
-
-  function updateHeader(index: number, key: "key" | "value" | "enabled", value: string | boolean) {
-    updateApiRequest({
-      headers: apiRequest.headers.map((header, headerIndex) =>
-        headerIndex === index ? { ...header, [key]: value } : header
-      )
-    });
-  }
 
   return (
     <Panel
@@ -140,120 +127,6 @@ export function ApiPanel() {
             onChange={(event) => updateApiRequest({ token: event.target.value })}
           />
         </label>
-      </div>
-
-      <div className="devtools-general">
-        <details open>
-          <summary>General</summary>
-          <dl>
-            <dt>Request URL</dt>
-            <dd>{apiRequest.endpoint}</dd>
-            <dt>Request Method</dt>
-            <dd>{apiRequest.method}</dd>
-            <dt>Status Code</dt>
-            <dd>
-              <span className={lastResponse?.ok ? "status-dot-ok" : "status-dot-idle"} />
-              {lastResponse ? `${lastResponse.status || "ERR"} ${lastResponse.ok ? "OK" : "Failed"}` : "Ready"}
-            </dd>
-            <dt>Payload Type</dt>
-            <dd>Form Data / URL-encoded</dd>
-          </dl>
-        </details>
-      </div>
-
-      <div className="api-toggles">
-        <label>
-          <input
-            type="checkbox"
-            checked={apiRequest.autoSend}
-            onChange={(event) => updateApiRequest({ autoSend: event.target.checked })}
-          />
-          Auto send
-        </label>
-        <label>
-          <input
-            type="checkbox"
-            checked={apiRequest.websocket}
-            onChange={(event) => updateApiRequest({ websocket: event.target.checked })}
-          />
-          <Wifi size={14} />
-          Websocket realtime
-        </label>
-      </div>
-
-      <div className="headers-editor">
-        {apiRequest.headers.map((header, index) => (
-          <div className="header-row" key={header.id}>
-            <input
-              type="checkbox"
-              checked={header.enabled}
-              onChange={(event) => updateHeader(index, "enabled", event.target.checked)}
-            />
-            <input
-              value={header.key}
-              onChange={(event) => updateHeader(index, "key", event.target.value)}
-            />
-            <input
-              value={header.value}
-              onChange={(event) => updateHeader(index, "value", event.target.value)}
-            />
-          </div>
-        ))}
-      </div>
-
-      <div className="request-response-grid">
-        <div className="editor-card form-data-card">
-          <strong>Form Data</strong>
-          <div className="form-data-preview">
-            {Object.entries(payload).map(([key, value]) => (
-              <div key={key}>
-                <dt>{key}</dt>
-                <dd>{value}</dd>
-              </div>
-            ))}
-          </div>
-        </div>
-        <div className="editor-card">
-          <strong>View URL-encoded</strong>
-          <Editor
-            height="260px"
-            defaultLanguage="text"
-            theme="vs-dark"
-            value={urlEncodedPayload}
-            options={{ readOnly: true, minimap: { enabled: false }, fontSize: 12 }}
-          />
-        </div>
-        <div className="editor-card">
-          <div className="response-head">
-            <strong>Response Viewer</strong>
-            {lastResponse && (
-              <span className={lastResponse.ok ? "response-ok" : "response-error"}>
-                {lastResponse.status || "ERR"} / {lastResponse.timeMs}ms
-              </span>
-            )}
-          </div>
-          <Editor
-            height="260px"
-            defaultLanguage="json"
-            theme="vs-dark"
-            value={JSON.stringify(lastResponse?.body ?? { waiting: "Send a request" }, null, 2)}
-            options={{ readOnly: true, minimap: { enabled: false }, fontSize: 12 }}
-          />
-        </div>
-      </div>
-
-      <div className="history-strip">
-        {requestLogs.slice(0, 5).map((log) => (
-          <button key={log.id} onClick={() => replayLog(log.id)}>
-            <RotateCcw size={13} />
-            <span>{log.method}</span>
-            <strong>{log.projectName}</strong>
-            <small>
-              <Clock size={12} />
-              {new Date(log.createdAt).toLocaleTimeString()}
-            </small>
-          </button>
-        ))}
       </div>
     </Panel>
   );

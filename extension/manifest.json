@@ -3,38 +3,21 @@
   "name": "Slot Matrix Dock",
   "version": "0.1.0",
   "description": "Floating operator dock for slot matrix cheat/test requests.",
-  "permissions": ["storage"],
-  "host_permissions": [
-    "https://cheat.staging.enostd.gay/*",
-    "https://iframe-tektale.staging.enostd.gay/*",
-    "https://cheat.doithe47.com/*",
-    "http://www.rampnhan.online/*",
-    "https://www.rampnhan.online/*",
-    "https://nhannht251094.github.io/tool_cheat/*",
-    "http://localhost/*",
-    "http://127.0.0.1/*"
-  ],
+  "permissions": ["storage", "tabs", "activeTab", "scripting"],
+  "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "background.js"
   },
   "content_scripts": [
     {
-      "matches": [
-        "https://cheat.staging.enostd.gay/*",
-        "https://iframe-tektale.staging.enostd.gay/*",
-        "https://cheat.doithe47.com/*",
-        "http://www.rampnhan.online/*",
-        "https://www.rampnhan.online/*",
-        "https://nhannht251094.github.io/tool_cheat/*",
-        "http://localhost/*",
-        "http://127.0.0.1/*"
-      ],
+      "matches": ["<all_urls>"],
       "js": ["content.js"],
       "run_at": "document_idle"
     }
   ],
   "options_page": "options.html",
   "action": {
-    "default_title": "Slot Matrix Dock"
+    "default_title": "Slot Matrix Dock",
+    "default_popup": "popup.html"
   }
 }

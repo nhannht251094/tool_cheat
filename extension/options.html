@@ -17,6 +17,24 @@
       </header>
 
       <section class="panel">
+        <div class="section-title">
+          <h2>Dock visibility</h2>
+          <p>Dock only appears on enabled URLs. Use one URL or pattern per line.</p>
+        </div>
+        <label class="checkbox-row">
+          <input id="dockEnabled" type="checkbox" />
+          Enable dock on allowed sites
+        </label>
+        <label>
+          Always show dock on these pages
+          <textarea id="dockAllowedSites" spellcheck="false"></textarea>
+        </label>
+      </section>
+
+      <section class="panel">
+        <div class="section-title">
+          <h2>Request defaults</h2>
+        </div>
         <label>
           Endpoint
           <input id="endpoint" />

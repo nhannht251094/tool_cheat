@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Slot Matrix Dock</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <span>Slot Matrix Dock</span>
+        <strong id="host">Current tab</strong>
+      </header>
+
+      <button id="openDock" class="primary">Open Dock</button>
+
+      <label>
+        Always show on
+        <input id="sitePattern" placeholder="https://example.com/*" />
+      </label>
+      <button id="alwaysShow">Always Show Here</button>
+
+      <button id="settings" class="ghost">Settings</button>
+      <p id="status">Ready</p>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

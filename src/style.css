@@ -532,7 +532,7 @@ button:hover {
   display: grid;
   grid-template-columns: 130px 150px minmax(0, 1fr);
   gap: 10px;
-  padding: 14px 16px 0;
+  padding: 14px 16px 16px;
 }
 
 .api-grid .span-2 {
@@ -978,7 +978,7 @@ body {
 .tester-shell {
   position: relative;
   display: grid;
-  grid-template-columns: 280px minmax(560px, 1fr) 300px;
+  grid-template-columns: 220px minmax(560px, 1fr) 380px;
   height: 100vh;
   overflow: hidden;
   background: #1f1f1f;
@@ -989,7 +989,7 @@ body {
   display: flex;
   flex-direction: column;
   height: 100vh;
-  padding: 14px;
+  padding: 12px;
   border-right: 1px solid #333;
   background: #191919;
 }
@@ -1016,7 +1016,7 @@ body {
 
 .tester-shell .brand-row strong {
   color: #d6d6d6;
-  font-size: 20px;
+  font-size: 17px;
   font-weight: 850;
 }
 
@@ -1048,15 +1048,15 @@ body {
 .tester-shell .project-list {
   gap: 0;
   max-height: none;
-  margin: 0 -14px;
+  margin: 0 -12px;
   overflow: auto;
   border-top: 1px solid #2b2b2b;
   border-bottom: 1px solid #2b2b2b;
 }
 
 .tester-shell .project-card {
-  min-height: 96px;
-  padding: 18px 14px;
+  min-height: 82px;
+  padding: 14px 12px;
   border: 0;
   border-bottom: 1px solid #313131;
   border-radius: 0;
@@ -1071,7 +1071,7 @@ body {
 
 .tester-shell .project-card input {
   color: inherit;
-  font-size: 18px;
+  font-size: 15px;
 }
 
 .tester-shell .project-card .project-service-id {
@@ -1087,7 +1087,7 @@ body {
 }
 
 .tester-shell .project-card span {
-  margin-top: 8px;
+  margin-top: 6px;
   color: rgba(220, 220, 220, 0.7);
   font-size: 13px;
 }
@@ -1781,7 +1781,7 @@ body {
 
 .floating-action-dock {
   position: fixed;
-  right: calc(clamp(290px, 24vw, 330px) + 24px);
+  right: calc(clamp(360px, 28vw, 420px) + 24px);
   bottom: 18px;
   z-index: 40;
   display: flex;
@@ -1797,7 +1797,7 @@ body {
 
 .floating-action-dock:not(.is-pinned) {
   position: absolute;
-  right: calc(clamp(290px, 24vw, 330px) + 24px);
+  right: calc(clamp(360px, 28vw, 420px) + 24px);
   bottom: 18px;
   opacity: 0.86;
 }
@@ -1847,8 +1847,8 @@ body {
   display: flex;
   align-items: center;
   gap: 16px;
-  height: 72px;
-  padding: 0 16px;
+  height: 64px;
+  padding: 0 18px;
   border-bottom: 1px solid #303030;
 }
 
@@ -1873,7 +1873,7 @@ body {
 .operations-tabs {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  margin: 16px 16px 10px;
+  margin: 14px 18px 10px;
   border: 1px solid #303030;
   border-radius: 6px;
   overflow: hidden;
@@ -1902,17 +1902,17 @@ body {
   gap: 8px;
   overflow: auto;
   overflow-x: hidden;
-  padding: 0 16px 16px;
+  padding: 0 18px 16px;
 }
 
 .operation-card {
   position: relative;
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) auto;
-  gap: 10px;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  gap: 12px;
   align-items: center;
-  min-height: 70px;
-  padding: 10px;
+  min-height: 64px;
+  padding: 10px 12px;
   border: 1px solid #303030;
   border-radius: 10px;
   background: #242424;
@@ -1968,7 +1968,7 @@ body {
 
 .operation-main {
   display: grid;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
 }
 
@@ -1980,6 +1980,37 @@ body {
   color: #d1d1d1;
   font-size: 15px;
   line-height: 1.18;
+}
+
+.operation-main strong input {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: #e1e1e1;
+  background: transparent;
+  font: inherit;
+  font-weight: 850;
+  outline: 0;
+}
+
+.operation-main strong input:hover {
+  border-color: #3a3a3a;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.operation-main strong input:focus {
+  border-color: #1688e3;
+  background: rgba(8, 121, 217, 0.12);
+}
+
+.operation-main strong input[readonly] {
+  cursor: default;
+}
+
+.operation-main strong input[readonly]:focus {
+  border-color: transparent;
+  background: transparent;
 }
 
 .operation-main strong > span {
@@ -2000,7 +2031,7 @@ body {
 .operation-main div {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
 }
 
@@ -2049,25 +2080,36 @@ body {
 
 .operations-footer {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr;
   gap: 6px;
   margin-top: auto;
-  padding: 10px 16px 16px;
+  padding: 10px 18px 16px;
   border-top: 1px solid #303030;
 }
 
-.operations-footer button {
+.operations-footer button,
+.operations-footer a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   min-height: 36px;
   border: 1px solid #0879d9;
   border-radius: 5px;
   color: #2196f3;
   background: transparent;
   font-weight: 800;
+  text-decoration: none;
 }
 
 .operations-footer .export {
   color: #2fb94d;
   border-color: #2fb94d;
+}
+
+.operations-footer a {
+  color: #e0bf7f;
+  border-color: #d2a95f;
 }
 
 .tester-main-scroll .api-panel {
@@ -2082,7 +2124,7 @@ body {
 }
 
 .tester-shell {
-  grid-template-columns: clamp(220px, 18vw, 280px) minmax(0, 1fr) clamp(290px, 24vw, 330px);
+  grid-template-columns: clamp(190px, 15vw, 230px) minmax(0, 1fr) clamp(360px, 28vw, 420px);
 }
 
 .tester-main-scroll,
@@ -2105,7 +2147,7 @@ body {
 
 @media (max-width: 1180px) {
   .tester-shell {
-    grid-template-columns: 72px minmax(0, 1fr) 300px;
+    grid-template-columns: 72px minmax(0, 1fr) 340px;
   }
 
   .tester-shell .project-sidebar {
@@ -2226,14 +2268,14 @@ body {
   }
 
   .floating-action-dock {
-    right: 316px;
+    right: 356px;
     bottom: 14px;
   }
 }
 
 @media (max-width: 940px) {
   .tester-shell {
-    grid-template-columns: minmax(0, 1fr) 300px;
+    grid-template-columns: minmax(0, 1fr) 340px;
   }
 
   .tester-shell .project-sidebar {
@@ -2257,7 +2299,7 @@ body {
   }
 
   .floating-action-dock {
-    right: 316px;
+    right: 356px;
     transform: scale(0.92);
     transform-origin: bottom right;
   }

@@ -1,7 +1,9 @@
 {
   "scripts": {
+    "predev": "npm run package:extension",
     "dev": "vite --host 127.0.0.1",
-    "build": "tsc && vite build",
+    "package:extension": "node scripts/package-extension.mjs",
+    "build": "npm run package:extension && tsc && vite build",
     "preview": "vite preview --host 0.0.0.0"
   },
   "dependencies": {
