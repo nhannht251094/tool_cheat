@@ -985,6 +985,47 @@ body {
   color: #d5d5d5;
 }
 
+.json-drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+  background: rgba(10, 10, 10, 0.58);
+  pointer-events: none;
+}
+
+.json-drop-overlay > div {
+  display: grid;
+  gap: 8px;
+  width: min(420px, 92vw);
+  padding: 22px 24px;
+  border: 2px dashed #61b6ff;
+  border-radius: 8px;
+  color: white;
+  background: #171717;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.36);
+  text-align: center;
+}
+
+.json-drop-overlay strong {
+  font-size: 20px;
+}
+
+.json-drop-overlay span {
+  color: #c7c7c7;
+  font-size: 14px;
+}
+
+.json-drop-overlay.done > div {
+  border-color: #37c172;
+}
+
+.json-drop-overlay.error > div {
+  border-color: #ff554c;
+}
+
 .tester-shell .project-sidebar {
   display: flex;
   flex-direction: column;

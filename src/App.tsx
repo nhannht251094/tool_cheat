@@ -1,9 +1,10 @@
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FloatingActionDock } from "./components/layout/FloatingActionDock";
 import { ApiPanel } from "./features/api/ApiPanel";
 import { GameFormWorkspace } from "./features/forms/GameFormWorkspace";
 import { ProjectSidebar } from "./features/projects/ProjectSidebar";
 import { OperationsPanel } from "./features/templates/OperationsPanel";
+import { importProjectsFromJsonFile } from "./lib/projectExchange";
 import { buildSlotFormPayload } from "./lib/slotPayload";
 import { useStudioStore } from "./store/useStudioStore";
 import type { FieldConfig, MatrixPreset, Project } from "./types/studio";
@@ -32,6 +33,11 @@ function extensionFormFromPreset(project: Project, preset: MatrixPreset) {
 }
 
 export default function App() {
+  const [jsonDropState, setJsonDropState] = useState<"idle" | "over" | "importing" | "done" | "error">(
+    "idle"
+  );
+  const dropDepthRef = useRef(0);
+  const dropMessageTimerRef = useRef<number | null>(null);
   const {
     projects,
     activeProjectId,
@@ -41,12 +47,49 @@ export default function App() {
     matrix,
     formValues,
     apiRequest,
+    importProjects,
     savePreset,
     loadPreset,
     setActiveProject
   } =
     useStudioStore();
   const activeProject = projects.find((project) => project.projectId === activeProjectId);
+
+  function clearDropMessageLater(state: "done" | "error") {
+    setJsonDropState(state);
+    if (dropMessageTimerRef.current) window.clearTimeout(dropMessageTimerRef.current);
+    dropMessageTimerRef.current = window.setTimeout(() => {
+      setJsonDropState("idle");
+      dropMessageTimerRef.current = null;
+    }, 1400);
+  }
+
+  async function importJsonFile(file: File) {
+    setJsonDropState("importing");
+    try {
+      importProjects(await importProjectsFromJsonFile(file));
+      clearDropMessageLater("done");
+    } catch (error) {
+      clearDropMessageLater("error");
+      window.alert(error instanceof Error ? error.message : "Import failed");
+    }
+  }
+
+  function hasJsonFile(dataTransfer: DataTransfer | null) {
+    if (!dataTransfer) return false;
+    return Array.from(dataTransfer.items ?? []).some(
+      (item) =>
+        item.kind === "file" &&
+        (item.type === "application/json" || item.getAsFile()?.name.toLowerCase().endsWith(".json"))
+    );
+  }
+
+  function getJsonFile(dataTransfer: DataTransfer | null) {
+    if (!dataTransfer) return undefined;
+    return Array.from(dataTransfer.files).find(
+      (file) => file.type === "application/json" || file.name.toLowerCase().endsWith(".json")
+    );
+  }
 
   useEffect(() => {
     function handleShortcut(event: KeyboardEvent) {
@@ -96,6 +139,49 @@ export default function App() {
   }, [loadPreset, setActiveProject]);
 
   useEffect(() => {
+    function handleDragEnter(event: DragEvent) {
+      if (!hasJsonFile(event.dataTransfer)) return;
+      event.preventDefault();
+      dropDepthRef.current += 1;
+      setJsonDropState("over");
+    }
+
+    function handleDragOver(event: DragEvent) {
+      if (!hasJsonFile(event.dataTransfer)) return;
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+      setJsonDropState("over");
+    }
+
+    function handleDragLeave(event: DragEvent) {
+      if (!hasJsonFile(event.dataTransfer)) return;
+      event.preventDefault();
+      dropDepthRef.current = Math.max(0, dropDepthRef.current - 1);
+      if (dropDepthRef.current === 0) setJsonDropState("idle");
+    }
+
+    function handleDrop(event: DragEvent) {
+      const file = getJsonFile(event.dataTransfer);
+      if (!file) return;
+      event.preventDefault();
+      dropDepthRef.current = 0;
+      void importJsonFile(file);
+    }
+
+    window.addEventListener("dragenter", handleDragEnter);
+    window.addEventListener("dragover", handleDragOver);
+    window.addEventListener("dragleave", handleDragLeave);
+    window.addEventListener("drop", handleDrop);
+    return () => {
+      window.removeEventListener("dragenter", handleDragEnter);
+      window.removeEventListener("dragover", handleDragOver);
+      window.removeEventListener("dragleave", handleDragLeave);
+      window.removeEventListener("drop", handleDrop);
+      if (dropMessageTimerRef.current) window.clearTimeout(dropMessageTimerRef.current);
+    };
+  }, [importProjects]);
+
+  useEffect(() => {
     if (!activeProject) return;
 
     const forms = activeProject.presets.length
@@ -141,6 +227,27 @@ export default function App() {
       </section>
       <OperationsPanel />
       <FloatingActionDock />
+      {jsonDropState !== "idle" && (
+        <div className={`json-drop-overlay ${jsonDropState}`} aria-live="polite">
+          <div>
+            <strong>
+              {jsonDropState === "over" && "Drop JSON to import"}
+              {jsonDropState === "importing" && "Importing JSON"}
+              {jsonDropState === "done" && "JSON imported"}
+              {jsonDropState === "error" && "Import failed"}
+            </strong>
+            <span>
+              {jsonDropState === "over"
+                ? "Projects and forms will load automatically."
+                : jsonDropState === "done"
+                  ? "Projects are now available in the workspace."
+                  : jsonDropState === "error"
+                    ? "Check the JSON format and try again."
+                    : "Reading project data..."}
+            </span>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

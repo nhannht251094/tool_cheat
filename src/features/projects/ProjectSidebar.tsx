@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { useMemo, useRef } from "react";
 import { Button } from "../../components/ui/Button";
-import { exportProjectsToJson, importProjectsFromJson } from "../../lib/projectExchange";
+import { exportProjectsToJson, importProjectsFromJsonFile } from "../../lib/projectExchange";
 import { useStudioStore } from "../../store/useStudioStore";
 
 export function ProjectSidebar() {
@@ -57,9 +57,7 @@ export function ProjectSidebar() {
   async function handleImport(file?: File) {
     if (!file) return;
     try {
-      const text = await file.text();
-      const next = importProjectsFromJson(JSON.parse(text));
-      importProjects(next);
+      importProjects(await importProjectsFromJsonFile(file));
     } catch (error) {
       window.alert(error instanceof Error ? error.message : "Import failed");
     } finally {
@@ -100,7 +98,7 @@ export function ProjectSidebar() {
           ref={inputRef}
           hidden
           type="file"
-          accept="application/json"
+          accept=".json,application/json"
           onChange={(event) => void handleImport(event.target.files?.[0])}
         />
       </div>

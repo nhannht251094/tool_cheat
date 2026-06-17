@@ -10,7 +10,7 @@ import {
   Trash2
 } from "lucide-react";
 import { useRef, useState } from "react";
-import { exportProjectsToJson, importProjectsFromJson } from "../../lib/projectExchange";
+import { exportProjectsToJson, importProjectsFromJsonFile } from "../../lib/projectExchange";
 import { useStudioStore } from "../../store/useStudioStore";
 
 const fallbackForms = [
@@ -73,8 +73,7 @@ export function OperationsPanel() {
   async function handleImport(file?: File) {
     if (!file) return;
     try {
-      const text = await file.text();
-      importProjects(importProjectsFromJson(JSON.parse(text)));
+      importProjects(await importProjectsFromJsonFile(file));
     } catch (error) {
       window.alert(error instanceof Error ? error.message : "Import failed");
     } finally {
@@ -271,7 +270,7 @@ export function OperationsPanel() {
           ref={inputRef}
           hidden
           type="file"
-          accept="application/json"
+          accept=".json,application/json"
           onChange={(event) => void handleImport(event.target.files?.[0])}
         />
       </footer>

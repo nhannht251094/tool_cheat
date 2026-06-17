@@ -56,6 +56,23 @@ type ExternalEnvelope = {
   projects?: ExternalProject[];
 };
 
+type ExternalSavedFormsEnvelope = {
+  _meta?: ExternalEnvelope["_meta"] & {
+    uuid?: string;
+    id?: string;
+    projectName?: string;
+    environment?: string;
+    fieldsConfig?: Record<string, ExternalFieldConfig>;
+    customFields?: ExternalCustomField[];
+    defaultTableFormat?: string;
+    defaultDynamicFormat?: string;
+    customInputedFormats?: unknown[];
+    tableFormatKey?: string;
+    isDynamicFormat?: boolean;
+  };
+  forms?: ExternalSavedForm[];
+};
+
 const BUILT_IN_FIELD_KEYS = new Set([
   "serviceId",
   "userId",
@@ -64,6 +81,15 @@ const BUILT_IN_FIELD_KEYS = new Set([
   "freegameTableFormat",
   "powerUpSymbolCode"
 ]);
+
+const BUILT_IN_FIELD_ORDER = [
+  "serviceId",
+  "userId",
+  "matrixData",
+  "tableFormat",
+  "freegameTableFormat",
+  "powerUpSymbolCode"
+];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -88,6 +114,13 @@ function asFieldType(value: unknown): FieldType {
     : "text";
 }
 
+function fieldTypeFromValue(value: unknown): FieldType {
+  if (typeof value === "number") return "number";
+  if (typeof value === "boolean") return "checkbox";
+  if (isRecord(value) || Array.isArray(value)) return "json";
+  return "text";
+}
+
 function endpointForProject(projectId: string, environment?: string) {
   const env = String(environment || "staging").toLowerCase();
   if (env === "prod" || env === "production") return `https://cheat.enostd.gay/${projectId}/inputed`;
@@ -98,21 +131,26 @@ function fieldFromExternal(
   key: string,
   config: ExternalFieldConfig | undefined,
   defaultValue: unknown,
-  index: number
+  index: number,
+  type: FieldType = fieldTypeFromValue(defaultValue)
 ): FieldConfig {
   const isMatrix = key === "matrixData";
   return {
     id: `field-${key}-${index}`,
     label: config?.des || key,
     key,
-    type: isMatrix ? "textarea" : "text",
+    type: isMatrix ? "textarea" : type,
     defaultValue: asDefaultValue(defaultValue ?? config?.defaultData ?? ""),
     required: key === "serviceId" || key === "userId" || key === "matrixData" || key === "tableFormat",
     readonly: false,
-    hidden: isMatrix,
+    hidden: isMatrix || config?.enabled === false,
     placeholder: asString(config?.defaultData),
     category: BUILT_IN_FIELD_KEYS.has(key) ? "Form Data" : "Custom"
   };
+}
+
+function uniqueKeys(keys: string[]) {
+  return Array.from(new Set(keys.map((key) => key.trim()).filter(Boolean)));
 }
 
 function matrixPresetFromSavedForm(
@@ -158,14 +196,21 @@ function projectFromExternal(external: ExternalProject, index: number): Project 
     fallbackTableFormat
   );
 
-  const builtInKeys = [
-    "serviceId",
-    "userId",
-    "matrixData",
-    "tableFormat",
-    "freegameTableFormat"
-  ];
-  const fieldConfigs = builtInKeys.map((key, fieldIndex) => {
+  const customFieldsByKey = new Map(
+    (external.customFields ?? []).map((field, fieldIndex) => [
+      asString(field.name, `custom_${fieldIndex + 1}`),
+      field
+    ])
+  );
+  const fieldKeys = uniqueKeys([
+    ...BUILT_IN_FIELD_ORDER,
+    ...Object.keys(external.fieldsConfig ?? {}),
+    ...Array.from(customFieldsByKey.keys()),
+    ...forms.flatMap((form) => Object.keys(form.data ?? {}))
+  ]);
+
+  const fieldConfigs = fieldKeys.map((key, fieldIndex) => {
+    const customField = customFieldsByKey.get(key);
     const defaultValue =
       key === "serviceId"
         ? projectId
@@ -173,25 +218,31 @@ function projectFromExternal(external: ExternalProject, index: number): Project 
           ? firstFormData.userId ?? external.fieldsConfig?.userId?.defaultData ?? DEFAULT_USER_ID
           : key === "matrixData"
             ? firstFormData.matrixData ?? external.fieldsConfig?.matrixData?.defaultData ?? ""
-            : firstFormData[key] ?? external.fieldsConfig?.[key]?.defaultData ?? "";
-    return fieldFromExternal(key, external.fieldsConfig?.[key], defaultValue, fieldIndex);
-  });
+            : key === "tableFormat"
+              ? firstFormData.tableFormat ?? external.fieldsConfig?.tableFormat?.defaultData ?? fallbackTableFormat
+              : key === "powerUpSymbolCode"
+                ? firstFormData.powerUpSymbolCode ??
+                  external.fieldsConfig?.powerUpSymbolCode?.defaultData ??
+                  defaultPowerUpSymbolCode(firstMatrix.rows, firstMatrix.cols)
+                : firstFormData[key] ?? external.fieldsConfig?.[key]?.defaultData ?? customField?.defaultData ?? "";
 
-  const customFields = (external.customFields ?? []).map((field, fieldIndex): FieldConfig => {
-    const key = asString(field.name, `custom_${fieldIndex + 1}`);
-    return {
-      id: `field-custom-${key}-${fieldIndex}`,
-      label: field.label || key,
-      key,
-      type: asFieldType(field.type),
-      defaultValue: asDefaultValue(firstFormData[key] ?? field.defaultData ?? ""),
-      required: Boolean(field.isRequired),
-      readonly: false,
-      hidden: false,
-      placeholder: asString(field.defaultData),
-      validation: field.des,
-      category: "Custom"
-    };
+    if (customField) {
+      return {
+        id: `field-custom-${key}-${fieldIndex}`,
+        label: customField.label || key,
+        key,
+        type: asFieldType(customField.type || fieldTypeFromValue(defaultValue)),
+        defaultValue: asDefaultValue(defaultValue),
+        required: Boolean(customField.isRequired),
+        readonly: false,
+        hidden: false,
+        placeholder: asString(customField.defaultData),
+        validation: customField.des,
+        category: "Custom"
+      };
+    }
+
+    return fieldFromExternal(key, external.fieldsConfig?.[key], defaultValue, fieldIndex);
   });
 
   const presets = forms.map((form, formIndex) =>
@@ -205,11 +256,32 @@ function projectFromExternal(external: ExternalProject, index: number): Project 
     endpoint: endpointForProject(projectId, external.environment),
     token: "",
     defaultMatrix: firstMatrix.matrix,
-    fieldConfigs: [...fieldConfigs, ...customFields],
+    fieldConfigs,
     savedForms: forms as Record<string, unknown>[],
     presets,
     updatedAt: Math.max(...presets.map((preset) => preset.updatedAt), Date.now())
   };
+}
+
+function projectFromSavedFormsEnvelope(envelope: ExternalSavedFormsEnvelope): Project {
+  const meta = envelope._meta ?? {};
+  return projectFromExternal(
+    {
+      uuid: meta.uuid,
+      id: meta.id,
+      name: meta.projectName || meta.id,
+      environment: meta.environment,
+      fieldsConfig: meta.fieldsConfig,
+      customFields: meta.customFields,
+      defaultTableFormat: meta.defaultTableFormat,
+      defaultDynamicFormat: meta.defaultDynamicFormat,
+      customInputedFormats: meta.customInputedFormats,
+      tableFormatKey: meta.tableFormatKey,
+      isDynamicFormat: meta.isDynamicFormat,
+      listSavedForm: envelope.forms
+    },
+    0
+  );
 }
 
 function isProject(value: unknown): value is Project {
@@ -224,9 +296,19 @@ export function importProjectsFromJson(value: unknown): Project[] {
     if (Array.isArray(envelope.projects)) {
       return envelope.projects.map(projectFromExternal);
     }
+
+    const savedFormsEnvelope = value as ExternalSavedFormsEnvelope;
+    if (Array.isArray(savedFormsEnvelope.forms)) {
+      return [projectFromSavedFormsEnvelope(savedFormsEnvelope)];
+    }
   }
 
   throw new Error("Unsupported project JSON format");
+}
+
+export async function importProjectsFromJsonFile(file: File): Promise<Project[]> {
+  const text = await file.text();
+  return importProjectsFromJson(JSON.parse(text));
 }
 
 function fieldConfigsToExternal(fields: FieldConfig[]) {
