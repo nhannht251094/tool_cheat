@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Slot Matrix Dock",
-  "version": "0.2.11",
+  "version": "0.2.12",
   "description": "Floating operator dock for slot matrix cheat/test requests.",
   "permissions": ["storage", "tabs", "activeTab", "scripting"],
   "host_permissions": ["<all_urls>"],
