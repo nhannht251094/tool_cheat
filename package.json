@@ -1,10 +1,16 @@
 {
+  "name": "tool-cheat-react",
+  "version": "1.0.4",
+  "private": true,
   "scripts": {
+    "version:patch": "npm version patch --no-git-tag-version",
     "predev": "npm run package:extension",
     "dev": "vite --host 127.0.0.1",
     "package:extension": "node scripts/package-extension.mjs",
+    "typecheck": "tsc --noEmit",
     "build": "npm run package:extension && tsc && vite build",
-    "preview": "vite preview --host 0.0.0.0"
+    "preview": "vite preview --host 0.0.0.0",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",

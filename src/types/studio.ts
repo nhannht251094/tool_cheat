@@ -1,4 +1,4 @@
-export type Environment = "DEV" | "STAGING" | "PROD";
+export type Environment = "DEV" | "STAGING";
 
 export type HttpMethod = "GET" | "POST" | "PUT";
 

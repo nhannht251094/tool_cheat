@@ -4,13 +4,17 @@ import {
   Edit3,
   FileText,
   GripVertical,
-  List,
+  Search,
   Send,
   SlidersHorizontal,
-  Trash2
+  Trash2,
+  Upload
 } from "lucide-react";
-import { useRef, useState } from "react";
-import { exportProjectsToJson, importProjectsFromJsonFile } from "../../lib/projectExchange";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import dockManifest from "../../../extension/manifest.json";
+import { ProjectExportDialog } from "../projects/ProjectExportDialog";
+import { importProjectsFromJsonFile } from "../../lib/projectExchange";
+import { notify } from "../../lib/uiEvents";
 import { useStudioStore } from "../../store/useStudioStore";
 
 const fallbackForms = [
@@ -23,14 +27,44 @@ const fallbackForms = [
   "MegaWin"
 ];
 
+const OPERATIONS_WIDTH_KEY = "slot-matrix-operations-width";
+const OPERATIONS_COLLAPSED_KEY = "slot-matrix-operations-collapsed";
+const MIN_OPERATIONS_WIDTH = 280;
+const MAX_OPERATIONS_WIDTH = 300;
+const latestDockVersion = dockManifest.version;
+
+function compareVersions(left: string, right: string) {
+  const leftParts = left.split(".").map(Number);
+  const rightParts = right.split(".").map(Number);
+  const length = Math.max(leftParts.length, rightParts.length);
+  for (let index = 0; index < length; index += 1) {
+    const difference = (leftParts[index] || 0) - (rightParts[index] || 0);
+    if (difference !== 0) return difference;
+  }
+  return 0;
+}
+
+function clampOperationsWidth(value: number) {
+  return Math.min(MAX_OPERATIONS_WIDTH, Math.max(MIN_OPERATIONS_WIDTH, value));
+}
+
 export function OperationsPanel() {
   const inputRef = useRef<HTMLInputElement>(null);
+  const panelRef = useRef<HTMLElement>(null);
   const [draggingId, setDraggingId] = useState("");
   const [dropTarget, setDropTarget] = useState<{
     id: string;
     position: "before" | "after";
   } | null>(null);
   const [nameDrafts, setNameDrafts] = useState<Record<string, string>>({});
+  const [formSearch, setFormSearch] = useState("");
+  const [installedDockVersion, setInstalledDockVersion] = useState("");
+  const [legacyDockDetected, setLegacyDockDetected] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem(OPERATIONS_COLLAPSED_KEY) === "true");
+  const [panelWidth, setPanelWidth] = useState(() =>
+    clampOperationsWidth(Number(localStorage.getItem(OPERATIONS_WIDTH_KEY)) || 296)
+  );
   const {
     projects,
     activeProjectId,
@@ -53,29 +87,97 @@ export function OperationsPanel() {
     : fallbackForms.map((name, index) => ({
         id: `fallback-${index}`,
         name,
-        hash: `#${Math.random().toString(16).slice(2, 9)}`,
+        hash: `#fallback-${index + 1}`,
         scenario: "normal"
       }));
+  const formSearchValue = formSearch.trim().toLowerCase();
+  const filteredForms = formSearchValue
+    ? forms.filter((form) =>
+        [form.name, form.scenario, form.hash].some((value) =>
+          value.toLowerCase().includes(formSearchValue)
+        )
+      )
+    : forms;
 
-  function exportProjects() {
-    const blob = new Blob([JSON.stringify(exportProjectsToJson(projects), null, 2)], {
-      type: "application/json"
-    });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-    link.href = url;
-    link.download = `${project?.name || "slot-projects"}-${stamp}.json`;
-    link.click();
-    URL.revokeObjectURL(url);
+  useEffect(() => {
+    document.documentElement.style.setProperty("--operations-panel-width", `${panelWidth}px`);
+    localStorage.setItem(OPERATIONS_WIDTH_KEY, String(panelWidth));
+  }, [panelWidth]);
+
+  useEffect(() => {
+    localStorage.setItem(OPERATIONS_COLLAPSED_KEY, String(collapsed));
+  }, [collapsed]);
+
+  useEffect(() => {
+    function handleDockVersion(event: MessageEvent) {
+      if (event.source !== window || event.data?.type !== "SLOT_MATRIX_DOCK_VERSION") return;
+      if (typeof event.data.version === "string") setInstalledDockVersion(event.data.version);
+    }
+
+    window.addEventListener("message", handleDockVersion);
+    window.postMessage({ type: "SLOT_MATRIX_REQUEST_DOCK_VERSION" }, window.location.origin);
+    const legacyDetectionTimer = window.setTimeout(() => {
+      if (document.getElementById("slot-matrix-dock-host")) setLegacyDockDetected(true);
+    }, 500);
+    return () => {
+      window.removeEventListener("message", handleDockVersion);
+      window.clearTimeout(legacyDetectionTimer);
+    };
+  }, []);
+
+  const dockVersionComparison = installedDockVersion
+    ? compareVersions(installedDockVersion, latestDockVersion)
+    : null;
+  const dockDownloadState =
+    legacyDockDetected && !installedDockVersion
+      ? "outdated"
+      : dockVersionComparison === null
+      ? "unknown"
+      : dockVersionComparison < 0
+        ? "outdated"
+        : "latest";
+  const dockDownloadLabel =
+    dockDownloadState === "outdated"
+      ? "Update Dock"
+      : dockDownloadState === "latest"
+        ? "Dock Latest"
+        : "Dock Ext";
+  const dockDownloadTitle = installedDockVersion
+    ? dockDownloadState === "outdated"
+      ? `Dock ${installedDockVersion} is installed. Download ${latestDockVersion}.`
+      : `Dock ${installedDockVersion} is up to date.`
+    : legacyDockDetected
+      ? `An older dock without version reporting is installed. Download ${latestDockVersion}.`
+      : `Dock not detected. Latest version: ${latestDockVersion}.`;
+
+  function startResize(event: ReactPointerEvent<HTMLDivElement>) {
+    if (collapsed) return;
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = panelRef.current?.getBoundingClientRect().width ?? panelWidth;
+
+    function onPointerMove(moveEvent: globalThis.PointerEvent) {
+      setPanelWidth(clampOperationsWidth(startWidth - (moveEvent.clientX - startX)));
+    }
+
+    function onPointerUp() {
+      document.removeEventListener("pointermove", onPointerMove);
+      document.removeEventListener("pointerup", onPointerUp);
+      document.body.classList.remove("is-resizing-operations");
+    }
+
+    document.body.classList.add("is-resizing-operations");
+    document.addEventListener("pointermove", onPointerMove);
+    document.addEventListener("pointerup", onPointerUp);
   }
 
   async function handleImport(file?: File) {
     if (!file) return;
     try {
       importProjects(await importProjectsFromJsonFile(file));
+      notify("Project data imported.", "success");
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : "Import failed");
+      notify(error instanceof Error ? error.message : "Import failed", "error");
     } finally {
       if (inputRef.current) inputRef.current.value = "";
     }
@@ -108,29 +210,49 @@ export function OperationsPanel() {
   }
 
   return (
-    <aside className="operations-panel">
+    <aside
+      ref={panelRef}
+      className={collapsed ? "operations-panel is-collapsed" : "operations-panel"}
+    >
+      <div
+        className="operations-resize-handle"
+        aria-hidden="true"
+        onPointerDown={startResize}
+      />
       <header className="operations-head">
-        <button>›</button>
+        <button
+          type="button"
+          title={collapsed ? "Expand Operations Panel" : "Collapse Operations Panel"}
+          aria-label={collapsed ? "Expand Operations Panel" : "Collapse Operations Panel"}
+          aria-expanded={!collapsed}
+          onClick={() => setCollapsed((value) => !value)}
+        >
+          {collapsed ? "‹" : "›"}
+        </button>
         <h2>
           <SlidersHorizontal size={18} />
           Operations Panel
         </h2>
       </header>
 
-      <div className="operations-tabs">
-        <button className="active">
-          <FileText size={15} />
-          Forms
-        </button>
-        <button>
-          <List size={15} />
-          Sequence
-        </button>
-      </div>
-
-      <div className="operation-list">
-        {forms.map((form) => (
-          <article
+      <details className="operation-group" open>
+        <summary>
+          <span>Saved Forms</span>
+          <strong>{filteredForms.length === forms.length ? forms.length : `${filteredForms.length}/${forms.length}`}</strong>
+        </summary>
+        <div className="operation-group-content">
+          <label className="operation-search">
+            <Search size={14} />
+            <input
+              aria-label="Search saved forms"
+              placeholder="Search forms"
+              value={formSearch}
+              onChange={(event) => setFormSearch(event.target.value)}
+            />
+          </label>
+          <div className="operation-list">
+            {filteredForms.map((form) => (
+            <article
             className={[
               "operation-card",
               form.id === activePresetId ? "active" : "",
@@ -140,6 +262,7 @@ export function OperationsPanel() {
               .filter(Boolean)
               .join(" ")}
             key={form.id}
+            title={form.name}
             draggable={!form.id.startsWith("fallback-")}
             onDragStart={(event) => {
               setDraggingId(form.id);
@@ -183,7 +306,7 @@ export function OperationsPanel() {
                 <input
                   aria-label="Form name"
                   readOnly={form.id.startsWith("fallback-")}
-                  title={form.id.startsWith("fallback-") ? "Save a form before renaming" : "Click to rename"}
+                  title={form.name}
                   value={nameDrafts[form.id] ?? form.name}
                   onChange={(event) => updateNameDraft(form.id, event.target.value)}
                   onBlur={() => finishNameEdit(form.id, form.name)}
@@ -204,8 +327,8 @@ export function OperationsPanel() {
                 />
                 {form.name === "SuperMegaWin" && <i />}
               </strong>
-              <div>
-                <span>{form.scenario}</span>
+              <div className="operation-meta">
+                <span className="operation-scenario">{form.scenario}</span>
                 <small>{form.hash}</small>
               </div>
             </div>
@@ -216,6 +339,7 @@ export function OperationsPanel() {
                 onClick={(event) => {
                   event.stopPropagation();
                   loadPreset(form.id);
+                  notify(`Loaded ${form.name}. Sending request...`, "info");
                   window.setTimeout(() => {
                     document.querySelector<HTMLButtonElement>("[data-action='send-request']")?.click();
                   }, 0);
@@ -229,6 +353,7 @@ export function OperationsPanel() {
                   event.stopPropagation();
                   loadPreset(form.id);
                   window.setTimeout(() => savePreset(`${form.name} Copy`, "Manual"), 0);
+                  notify("Form duplicated.", "success");
                 }}
               >
                 <Copy size={15} />
@@ -238,7 +363,10 @@ export function OperationsPanel() {
                 onClick={(event) => {
                   event.stopPropagation();
                   const nextName = window.prompt("Rename form", form.name);
-                  if (nextName) renamePreset(form.id, nextName);
+                  if (nextName) {
+                    renamePreset(form.id, nextName);
+                    notify("Form renamed.", "success");
+                  }
                 }}
               >
                 <Edit3 size={15} />
@@ -248,23 +376,46 @@ export function OperationsPanel() {
                 title="Delete"
                 onClick={(event) => {
                   event.stopPropagation();
-                  deletePreset(form.id);
+                  if (window.confirm(`Delete saved form "${form.name}"? This cannot be undone.`)) {
+                    deletePreset(form.id);
+                    notify("Saved form deleted.", "success");
+                  }
                 }}
               >
                 <Trash2 size={15} />
               </button>
             </div>
             {form.id === activePresetId && <span className="operation-active-line" />}
-          </article>
-        ))}
-      </div>
+            </article>
+            ))}
+            {!filteredForms.length && (
+              <div className="operation-empty">
+                <strong>No forms found</strong>
+                <span>Try a different name, scenario, or id.</span>
+              </div>
+            )}
+          </div>
+        </div>
+      </details>
 
       <footer className="operations-footer">
-        <button className="export" onClick={exportProjects}>⇩ Export</button>
-        <button onClick={() => inputRef.current?.click()}>↥ Import</button>
-        <a href="/slot-matrix-dock-extension.zip" download>
+        <button className="export" data-action="export-projects" onClick={() => setExportOpen(true)}>
           <Download size={14} />
-          Dock Ext
+          Export
+        </button>
+        <button onClick={() => inputRef.current?.click()}>
+          <Upload size={14} />
+          Import
+        </button>
+        <a
+          className={`dock-extension-download is-${dockDownloadState}`}
+          href="/slot-matrix-dock-extension.zip"
+          download
+          title={dockDownloadTitle}
+        >
+          <span className="dock-version-dot" aria-hidden="true" />
+          <Download size={14} />
+          {dockDownloadLabel}
         </a>
         <input
           ref={inputRef}
@@ -274,6 +425,12 @@ export function OperationsPanel() {
           onChange={(event) => void handleImport(event.target.files?.[0])}
         />
       </footer>
+      <ProjectExportDialog
+        open={exportOpen}
+        projects={projects}
+        activeProjectId={activeProjectId}
+        onClose={() => setExportOpen(false)}
+      />
     </aside>
   );
 }

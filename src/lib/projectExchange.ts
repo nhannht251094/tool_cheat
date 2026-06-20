@@ -3,8 +3,11 @@ import {
   DEFAULT_ENDPOINT,
   DEFAULT_SERVICE_ID,
   DEFAULT_USER_ID,
-  defaultPowerUpSymbolCode
+  defaultPowerUpSymbolCode,
+  tableFormatFromMatrix
 } from "./slotPayload";
+import { endpointForEnvironment, normalizeEnvironment } from "./apiEndpoint";
+import { createUuid } from "./id";
 import type { FieldConfig, FieldType, MatrixPreset, Project } from "../types/studio";
 
 type ExternalFieldConfig = {
@@ -99,6 +102,10 @@ function asString(value: unknown, fallback: unknown = "") {
   return value == null || value === "" ? String(fallback ?? "") : String(value);
 }
 
+function asTimestamp(value: unknown, fallback: number) {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
 function asDefaultValue(value: unknown): string | number | boolean {
   if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
     return value;
@@ -122,9 +129,15 @@ function fieldTypeFromValue(value: unknown): FieldType {
 }
 
 function endpointForProject(projectId: string, environment?: string) {
-  const env = String(environment || "staging").toLowerCase();
-  if (env === "prod" || env === "production") return `https://cheat.enostd.gay/${projectId}/inputed`;
-  return `https://cheat.staging.enostd.gay/${projectId}/inputed`;
+  return endpointForEnvironment(projectId, normalizeEnvironment(environment));
+}
+
+function endpointWithServiceId(endpoint: unknown, serviceId: string) {
+  const value = typeof endpoint === "string" && endpoint.trim() ? endpoint.trim() : DEFAULT_ENDPOINT;
+  if (/\/[^/]+\/inputed/.test(value)) {
+    return value.replace(/\/[^/]+\/inputed/, `/${serviceId}/inputed`);
+  }
+  return endpointForProject(serviceId, value.includes("cheat.staging.") ? "staging" : "dev");
 }
 
 function fieldFromExternal(
@@ -151,6 +164,132 @@ function fieldFromExternal(
 
 function uniqueKeys(keys: string[]) {
   return Array.from(new Set(keys.map((key) => key.trim()).filter(Boolean)));
+}
+
+function matrixFromUnknown(value: unknown, rows: number, cols: number) {
+  const source = Array.isArray(value) ? value : [];
+  return Array.from({ length: rows }, (_, rowIndex) =>
+    Array.from({ length: cols }, (_, colIndex) => {
+      const cell = Array.isArray(source[rowIndex]) ? source[rowIndex]?.[colIndex] : undefined;
+      return asString(cell, "C3");
+    })
+  );
+}
+
+function normalizeFieldConfigs(fields: unknown, serviceId: string, rows: number, cols: number) {
+  const inputFields = Array.isArray(fields) ? (fields as FieldConfig[]) : [];
+  const byKey = new Map(inputFields.filter((field) => field?.key).map((field) => [field.key, field]));
+  const requiredDefaults: Array<[string, unknown, FieldType]> = [
+    ["serviceId", serviceId, "text"],
+    ["userId", DEFAULT_USER_ID, "text"],
+    ["matrixData", "", "textarea"],
+    ["tableFormat", tableFormatFromMatrix(rows, cols), "text"],
+    ["freegameTableFormat", tableFormatFromMatrix(rows, cols), "text"],
+    ["powerUpSymbolCode", defaultPowerUpSymbolCode(rows, cols), "textarea"]
+  ];
+
+  return [
+    ...requiredDefaults
+      .filter(([key]) => !byKey.has(key))
+      .map(([key, defaultValue, type], index) =>
+        fieldFromExternal(key, undefined, defaultValue, index, type)
+      ),
+    ...inputFields.map((field, index) => ({
+      ...field,
+      id: field.id || `field-${field.key || "custom"}-${index}`,
+      label: field.label || field.key || `Field ${index + 1}`,
+      key: field.key || `field_${index + 1}`,
+      type: asFieldType(field.type),
+      defaultValue:
+        field.key === "serviceId" ? serviceId : asDefaultValue(field.defaultValue ?? ""),
+      required: Boolean(field.required),
+      readonly: Boolean(field.readonly),
+      hidden: Boolean(field.hidden),
+      category: field.category || (BUILT_IN_FIELD_KEYS.has(field.key) ? "Form Data" : "Custom")
+    }))
+  ];
+}
+
+function normalizePresets(presets: unknown, serviceId: string, fallbackMatrix: string[][]) {
+  const seen = new Set<string>();
+  const inputPresets = Array.isArray(presets) ? (presets as MatrixPreset[]) : [];
+
+  return inputPresets.map((preset, index) => {
+    const formValues = isRecord(preset.formValues) ? preset.formValues : {};
+    const fallbackRows = fallbackMatrix.length || 4;
+    const fallbackCols = fallbackMatrix[0]?.length || 5;
+    const tableFormat = asString(formValues.tableFormat, tableFormatFromMatrix(fallbackRows, fallbackCols));
+    const parsedFromRaw = rawToMatrixAuto(asString(formValues.matrixData, ""), tableFormat);
+    const cellRows = Array.isArray(preset.cells) ? preset.cells.length : 0;
+    const cellCols = Array.isArray(preset.cells?.[0]) ? preset.cells[0].length : 0;
+    const rows = Math.max(1, Number(preset.rows) || cellRows || parsedFromRaw.rows || fallbackRows);
+    const cols = Math.max(1, Number(preset.cols) || cellCols || parsedFromRaw.cols || fallbackCols);
+    const cells = Array.isArray(preset.cells)
+      ? matrixFromUnknown(preset.cells, rows, cols)
+      : matrixFromUnknown(parsedFromRaw.matrix, rows, cols);
+    const createdAt = asTimestamp(preset.createdAt, Date.now() + index);
+    const baseId = asString(preset.id, `preset-${createdAt}`);
+    const duplicateCount = Array.from(seen).filter((id) => id === baseId || id.startsWith(`${baseId}-`)).length;
+    const id = seen.has(baseId) ? `${baseId}-${duplicateCount + 1}` : baseId;
+    seen.add(id);
+
+    return {
+      ...preset,
+      id,
+      name: asString(preset.name, `Form ${index + 1}`),
+      scenario: asString(preset.scenario, preset.tableType || "normal"),
+      tableType: asString(preset.tableType, preset.scenario || "normal"),
+      rows,
+      cols,
+      cells,
+      formValues: {
+        serviceId,
+        ...formValues,
+        tableFormat
+      },
+      createdAt,
+      updatedAt: asTimestamp(preset.updatedAt, createdAt)
+    };
+  });
+}
+
+function normalizeImportedProject(project: Project, index: number): Project {
+  const fallbackServiceId = asString(project.name?.match(/\d+/)?.[0], DEFAULT_SERVICE_ID);
+  const serviceId = asString(
+    project.serviceId || project.fieldConfigs?.find((field) => field.key === "serviceId")?.defaultValue,
+    fallbackServiceId
+  );
+  const defaultMatrix =
+    Array.isArray(project.defaultMatrix) && project.defaultMatrix.length
+      ? matrixFromUnknown(
+          project.defaultMatrix,
+          project.defaultMatrix.length,
+          project.defaultMatrix[0]?.length || 5
+        )
+      : rawToMatrixAuto("", "4,4,4,4,4").matrix;
+  const presets = normalizePresets(project.presets, serviceId, defaultMatrix);
+  const firstMatrix = presets[0]?.cells ?? defaultMatrix;
+  const fieldConfigs = normalizeFieldConfigs(project.fieldConfigs, serviceId, firstMatrix.length, firstMatrix[0]?.length || 5);
+  const updatedAt = Math.max(
+    Date.now(),
+    ...presets.map((preset) => preset.updatedAt),
+    asTimestamp(project.updatedAt, 0)
+  );
+
+  return {
+    ...project,
+    projectId: asString(project.projectId, `project-${serviceId}-${index}`),
+    uuid: asString(project.uuid, createUuid()),
+    name: asString(project.name, serviceId),
+    serviceId,
+    endpoint: endpointWithServiceId(project.endpoint, serviceId),
+    token: asString(project.token),
+    defaultMatrix,
+    fieldConfigs,
+    savedForms: Array.isArray(project.savedForms) ? project.savedForms : [],
+    presets,
+    updatedAt
+  };
 }
 
 function matrixPresetFromSavedForm(
@@ -251,7 +390,7 @@ function projectFromExternal(external: ExternalProject, index: number): Project 
 
   return {
     projectId: `project-${projectId}-${external.uuid || index}`,
-    uuid: external.uuid || crypto.randomUUID(),
+    uuid: external.uuid || createUuid(),
     name: external.name || projectId,
     endpoint: endpointForProject(projectId, external.environment),
     token: "",
@@ -289,17 +428,19 @@ function isProject(value: unknown): value is Project {
 }
 
 export function importProjectsFromJson(value: unknown): Project[] {
-  if (Array.isArray(value) && value.every(isProject)) return value;
+  if (Array.isArray(value) && value.every(isProject)) {
+    return value.map(normalizeImportedProject);
+  }
 
   if (isRecord(value)) {
     const envelope = value as ExternalEnvelope;
     if (Array.isArray(envelope.projects)) {
-      return envelope.projects.map(projectFromExternal);
+      return envelope.projects.map(projectFromExternal).map(normalizeImportedProject);
     }
 
     const savedFormsEnvelope = value as ExternalSavedFormsEnvelope;
     if (Array.isArray(savedFormsEnvelope.forms)) {
-      return [projectFromSavedFormsEnvelope(savedFormsEnvelope)];
+      return [normalizeImportedProject(projectFromSavedFormsEnvelope(savedFormsEnvelope), 0)];
     }
   }
 
@@ -346,7 +487,7 @@ function projectToExternal(project: Project): ExternalProject {
     uuid: project.uuid,
     id: serviceId,
     name: project.name,
-    environment: project.endpoint.includes("staging") ? "staging" : "prod",
+    environment: project.endpoint.includes("staging") ? "staging" : "dev",
     fieldsConfig: fieldConfigsToExternal(project.fieldConfigs),
     customFields: customFieldsToExternal(project.fieldConfigs),
     customInputedFormats: [

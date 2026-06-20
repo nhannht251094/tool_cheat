@@ -10,7 +10,7 @@ export type SlotFormPayload = {
 
 export const DEFAULT_SERVICE_ID = "9703";
 export const DEFAULT_USER_ID = "game_rampusd01";
-export const DEFAULT_ENDPOINT = "https://cheat.staging.enostd.gay/9703/inputed";
+export const DEFAULT_ENDPOINT = "https://cheat.dev.enostd.gay/9703/inputed";
 
 export function tableFormatFromMatrix(rows: number, cols: number) {
   return Array.from({ length: cols }, () => String(rows)).join(",");

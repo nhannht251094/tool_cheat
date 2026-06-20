@@ -19,6 +19,12 @@ import {
   defaultPowerUpSymbolCode,
   tableFormatFromMatrix
 } from "../lib/slotPayload";
+import { createUuid } from "../lib/id";
+import {
+  endpointForEnvironment,
+  environmentFromEndpoint,
+  normalizeEnvironment
+} from "../lib/apiEndpoint";
 import type {
   ApiRequest,
   ApiResponse,
@@ -208,10 +214,7 @@ function projectServiceId(project: Project) {
 }
 
 function endpointForServiceId(endpoint: string, serviceId: string) {
-  if (/\/[^/]+\/inputed/.test(endpoint)) {
-    return endpoint.replace(/\/[^/]+\/inputed/, `/${serviceId}/inputed`);
-  }
-  return DEFAULT_ENDPOINT.replace(`/${DEFAULT_SERVICE_ID}/inputed`, `/${serviceId}/inputed`);
+  return endpointForEnvironment(serviceId, environmentFromEndpoint(endpoint || DEFAULT_ENDPOINT));
 }
 
 function nextProjectServiceId(projects: Project[]) {
@@ -226,11 +229,11 @@ function withProjectServiceId(project: Project, serviceId: string): Project {
   return {
     ...project,
     serviceId,
-    endpoint: endpointForServiceId(project.endpoint, serviceId),
-    fieldConfigs: project.fieldConfigs.map((field) =>
+    endpoint: endpointForServiceId(project.endpoint || DEFAULT_ENDPOINT, serviceId),
+    fieldConfigs: (project.fieldConfigs ?? []).map((field) =>
       field.key === "serviceId" ? { ...field, defaultValue: serviceId } : field
     ),
-    presets: project.presets.map((preset) => ({
+    presets: (project.presets ?? []).map((preset) => ({
       ...preset,
       formValues: {
         ...preset.formValues,
@@ -372,7 +375,7 @@ export const useStudioStore = create<StudioState>()(
           const project: Project = {
             ...withProjectServiceId(starterProject, serviceId),
             projectId: `project-${Date.now()}`,
-            uuid: crypto.randomUUID(),
+            uuid: createUuid(),
             name: `Untitled Slot ${state.projects.length + 1}`,
             updatedAt: Date.now(),
             presets: []
@@ -431,7 +434,7 @@ export const useStudioStore = create<StudioState>()(
           const copy = {
             ...withProjectServiceId(source, serviceId),
             projectId: `project-${Date.now()}`,
-            uuid: crypto.randomUUID(),
+            uuid: createUuid(),
             name: `${source.name} Copy`,
             updatedAt: Date.now()
           };
@@ -474,7 +477,10 @@ export const useStudioStore = create<StudioState>()(
           };
         }),
       importProjects: (projects) => {
-        const firstProject = projects[0] ?? starterProject;
+        const nextProjects = projects.length
+          ? projects.map((project) => withProjectServiceId(project, projectServiceId(project)))
+          : [starterProject];
+        const firstProject = nextProjects[0] ?? starterProject;
         const firstPreset = firstProject.presets[0];
         const serviceId = projectServiceId(firstProject);
         const formValues = firstPreset?.formValues
@@ -486,9 +492,7 @@ export const useStudioStore = create<StudioState>()(
         const cols = firstPreset?.cols ?? matrix[0]?.length ?? 5;
         const tableFormat = String(formValues.tableFormat || tableFormatFromMatrix(rows, cols));
         set({
-          projects: projects.length
-            ? projects.map((project) => withProjectServiceId(project, projectServiceId(project)))
-            : [starterProject],
+          projects: nextProjects,
           activeProjectId: firstProject.projectId,
           activePresetId: firstPreset?.id ?? "",
           rows,
@@ -1013,7 +1017,20 @@ export const useStudioStore = create<StudioState>()(
           };
         }),
       updateApiRequest: (patch) =>
-        set((state) => ({ apiRequest: { ...state.apiRequest, ...patch } })),
+        set((state) => {
+          const environment = normalizeEnvironment(patch.environment ?? state.apiRequest.environment);
+          const project = state.projects.find((item) => item.projectId === state.activeProjectId);
+          const serviceId = project ? projectServiceId(project) : state.formValues.serviceId;
+          const endpoint = endpointForEnvironment(serviceId, environment);
+          return {
+            apiRequest: { ...state.apiRequest, ...patch, environment, endpoint },
+            projects: state.projects.map((item) =>
+              item.projectId === state.activeProjectId
+                ? { ...item, endpoint, updatedAt: Date.now() }
+                : item
+            )
+          };
+        }),
       addRequestLog: (response, payload) =>
         set((state) => {
           const project = state.projects.find((item) => item.projectId === state.activeProjectId);
@@ -1037,8 +1054,7 @@ export const useStudioStore = create<StudioState>()(
           rawMatrix: matrixToRaw(log.matrix),
           apiRequest: {
             ...get().apiRequest,
-            method: log.method,
-            endpoint: log.endpoint
+            method: log.method
           }
         });
       }

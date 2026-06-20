@@ -26,7 +26,7 @@ chrome.runtime.sendMessage({ type: "GET_POPUP_STATE" }, (response) => {
 byId("openDock").addEventListener("click", () => {
   setStatus("Opening dock...");
   chrome.runtime.sendMessage({ type: "OPEN_DOCK_ON_TAB" }, (response) => {
-    setStatus(response?.ok ? "Dock opening" : response?.error || "Open failed");
+    setStatus(response?.ok ? "Dock opened" : response?.error || "Open failed");
     if (response?.ok) window.close();
   });
 });

@@ -15,18 +15,8 @@ Floating toolbar companion for the Slot Matrix tool.
 
 ## Where it runs
 
-The dock is injected on:
-
-```text
-https://cheat.staging.enostd.gay/*
-https://iframe-tektale.staging.enostd.gay/*
-https://cheat.doithe47.com/*
-http://www.rampnhan.online/*
-https://www.rampnhan.online/*
-https://nhannht251094.github.io/tool_cheat/*
-http://localhost/*
-http://127.0.0.1/*
-```
+The dock has no default allowed sites. Add sites manually from the extension popup with
+`Always Show Here`, or enter one URL pattern per line in the extension Options page.
 
 Chrome will not inject it into protected pages such as `chrome://...`.
 

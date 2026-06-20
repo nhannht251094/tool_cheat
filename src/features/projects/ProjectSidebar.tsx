@@ -9,13 +9,16 @@ import {
   Users,
   Palette
 } from "lucide-react";
-import { useMemo, useRef } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Button } from "../../components/ui/Button";
-import { exportProjectsToJson, importProjectsFromJsonFile } from "../../lib/projectExchange";
+import { importProjectsFromJsonFile } from "../../lib/projectExchange";
+import { focusSelector, notify, scrollToSelector } from "../../lib/uiEvents";
 import { useStudioStore } from "../../store/useStudioStore";
+import { ProjectExportDialog } from "./ProjectExportDialog";
 
 export function ProjectSidebar() {
   const inputRef = useRef<HTMLInputElement>(null);
+  const [exportOpen, setExportOpen] = useState(false);
   const {
     projects,
     activeProjectId,
@@ -40,38 +43,43 @@ export function ProjectSidebar() {
     [projectSearch, projects]
   );
 
-  function exportProjects() {
-    const blob = new Blob([JSON.stringify(exportProjectsToJson(projects), null, 2)], {
-      type: "application/json"
-    });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    const activeProject = projects.find((project) => project.projectId === activeProjectId);
-    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-    link.download = `${activeProject?.name || "slot-projects"}-${stamp}.json`;
-    link.click();
-    URL.revokeObjectURL(url);
-  }
-
   async function handleImport(file?: File) {
     if (!file) return;
     try {
       importProjects(await importProjectsFromJsonFile(file));
+      notify("Project data imported.", "success");
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : "Import failed");
+      notify(error instanceof Error ? error.message : "Import failed", "error");
     } finally {
       if (inputRef.current) inputRef.current.value = "";
     }
   }
 
+  function toggleTheme() {
+    const nextTheme = document.documentElement.dataset.theme === "contrast" ? "dark" : "contrast";
+    document.documentElement.dataset.theme = nextTheme;
+    localStorage.setItem("slot-matrix-theme", nextTheme);
+    notify(nextTheme === "contrast" ? "High contrast theme enabled." : "Dark theme enabled.", "success");
+  }
+
+  function clearWorkspaceData() {
+    if (!window.confirm("Clear all local Game API Tester data? This cannot be undone.")) return;
+    localStorage.removeItem("slot-matrix-studio");
+    notify("Local data cleared. Reloading...", "success");
+    window.setTimeout(() => window.location.reload(), 500);
+  }
+
   return (
     <aside className="project-sidebar">
       <div className="brand-row">
-        <div className="brand-icon">SM</div>
-        <div>
+        <div className="brand-copy">
           <strong>Game API Tester</strong>
-          <span>Operator Studio</span>
+          <span className="brand-subtitle">
+            Internal Tools
+            <span className="tool-version" title={`Tool Cheat build ${__BUILD_ID__}`}>
+              v{__APP_VERSION__}
+            </span>
+          </span>
         </div>
       </div>
 
@@ -88,7 +96,7 @@ export function ProjectSidebar() {
         <Button variant="primary" icon={<Plus size={15} />} onClick={createProject}>
           Create
         </Button>
-        <Button icon={<Download size={15} />} onClick={exportProjects}>
+        <Button icon={<Download size={15} />} data-action="export-projects" onClick={() => setExportOpen(true)}>
           Export
         </Button>
         <Button icon={<Upload size={15} />} onClick={() => inputRef.current?.click()}>
@@ -147,7 +155,10 @@ export function ProjectSidebar() {
                 title="Delete"
                 onClick={(event) => {
                   event.stopPropagation();
-                  deleteProject(project.projectId);
+                  if (window.confirm(`Delete project "${project.name}"? This cannot be undone.`)) {
+                    deleteProject(project.projectId);
+                    notify("Project deleted.", "success");
+                  }
                 }}
               >
                 <Trash2 size={14} />
@@ -163,26 +174,33 @@ export function ProjectSidebar() {
           <span>{projects.length} projects</span>
         </div>
         <meter min={0} max={5000} value={50.4} />
-        <button>
+        <button onClick={() => scrollToSelector(".api-panel")}>
           <Settings size={15} />
           API Settings
         </button>
         <button className="gold" onClick={() => inputRef.current?.click()}>
-          ↕ Export / Import
+          <Upload size={15} />
+          Export / Import
         </button>
-        <button className="blue">
+        <button className="blue" onClick={() => focusSelector(".top-user-field input")}>
           <Users size={15} />
           User ID Management
         </button>
-        <button>
+        <button onClick={toggleTheme}>
           <Palette size={15} />
           Theme Settings
         </button>
-        <button className="red">
+        <button className="red" onClick={clearWorkspaceData}>
           <Trash2 size={15} />
           Clear Data
         </button>
       </footer>
+      <ProjectExportDialog
+        open={exportOpen}
+        projects={projects}
+        activeProjectId={activeProjectId}
+        onClose={() => setExportOpen(false)}
+      />
     </aside>
   );
 }

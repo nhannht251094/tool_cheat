@@ -1,16 +1,61 @@
 (async function bootSlotMatrixDock() {
-  if (window.__slotMatrixDockMounted) return;
+  const DEFAULT_DOCK_ALLOWED_SITES = [];
 
-  const DEFAULT_DOCK_ALLOWED_SITES = [
-    "https://cheat.staging.enostd.gay/*",
-    "https://iframe-tektale.staging.enostd.gay/*",
-    "https://cheat.doithe47.com/*",
-    "http://www.rampnhan.online/*",
-    "https://www.rampnhan.online/*",
-    "https://nhannht251094.github.io/tool_cheat/*",
-    "http://localhost/*",
-    "http://127.0.0.1/*"
-  ];
+  function isToolSyncPage() {
+    const { hostname, pathname } = window.location;
+    if (hostname === "localhost" || hostname === "127.0.0.1") return true;
+    if (hostname === "www.rampnhan.online" || hostname === "rampnhan.online") return true;
+    return hostname === "nhannht251094.github.io" && pathname.startsWith("/tool_cheat");
+  }
+
+  function announceDockVersion() {
+    window.postMessage(
+      {
+        type: "SLOT_MATRIX_DOCK_VERSION",
+        version: chrome.runtime.getManifest().version
+      },
+      window.location.origin
+    );
+  }
+
+  function setupToolSyncBridge() {
+    if (!isToolSyncPage() || window.__slotMatrixDockSyncMounted) return;
+    window.__slotMatrixDockSyncMounted = true;
+
+    window.addEventListener("message", (event) => {
+      if (event.source !== window) return;
+      if (event.data?.type === "SLOT_MATRIX_REQUEST_DOCK_VERSION") {
+        announceDockVersion();
+        return;
+      }
+      if (event.data?.type !== "SLOT_MATRIX_SYNC_FORMS") return;
+
+      const forms = Array.isArray(event.data.forms) ? event.data.forms : [];
+      if (!forms.length) return;
+      const projects = Array.isArray(event.data.projects) ? event.data.projects : [];
+      const requestedFormId = event.data.currentFormId;
+      const requestedProjectId = event.data.currentProjectId;
+      const currentFormId = forms.some((form) => form.id === requestedFormId)
+        ? requestedFormId
+        : forms[0].id;
+      const currentProjectId = projects.some((project) => project.id === requestedProjectId)
+        ? requestedProjectId
+        : projects[0]?.id || "";
+
+      chrome.runtime.sendMessage({
+        type: "SAVE_FORMS",
+        forms,
+        currentFormId,
+        projects,
+        currentProjectId
+      });
+    });
+
+    announceDockVersion();
+  }
+
+  setupToolSyncBridge();
+  if (window.__slotMatrixDockMounted) return;
 
   function sitePatternMatches(pattern, url) {
     const value = String(pattern || "").trim();
@@ -28,7 +73,11 @@
   }
 
   function dockAllowed(storage) {
-    if (sessionStorage.getItem("slotMatrixDockOpenOnce") === "true") return true;
+    if (sessionStorage.getItem("slotMatrixDockOpenOnce") === "true") {
+      sessionStorage.removeItem("slotMatrixDockHidden");
+      return true;
+    }
+    if (sessionStorage.getItem("slotMatrixDockHidden") === "true") return false;
     if (storage.dockEnabled === false) return false;
     const sites = Array.isArray(storage.dockAllowedSites)
       ? storage.dockAllowedSites
@@ -125,50 +174,77 @@
     }
   });
 
-  window.addEventListener("message", (event) => {
-    if (event.source !== window || event.data?.type !== "SLOT_MATRIX_SYNC_FORMS") return;
-    const forms = Array.isArray(event.data.forms) ? event.data.forms : [];
-    if (!forms.length) return;
-    const requestedFormId = event.data.currentFormId;
-    const projects = Array.isArray(event.data.projects) ? event.data.projects : [];
-    const requestedProjectId = event.data.currentProjectId;
-    const projectChanged = Boolean(requestedProjectId && requestedProjectId !== state.currentProjectId);
-    const nextCurrentFormId = projectChanged
-      ? forms.some((form) => form.id === requestedFormId)
-        ? requestedFormId
-        : forms[0].id
-      : forms.some((form) => form.id === requestedFormId)
-      ? requestedFormId
-      : forms.some((form) => form.id === state.currentFormId)
-        ? state.currentFormId
-        : forms[0].id;
-    const nextCurrentProjectId = projects.some((project) => project.id === requestedProjectId)
-      ? requestedProjectId
-      : projects.some((project) => project.id === state.currentProjectId)
-        ? state.currentProjectId
-        : projects[0]?.id || "";
+  const dockDataStorageKeys = new Set([
+    "forms",
+    "formsByProject",
+    "currentFormId",
+    "currentFormIdsByProject",
+    "projects",
+    "currentProjectId"
+  ]);
 
-    chrome.runtime.sendMessage(
-      {
-        type: "SAVE_FORMS",
-        forms,
-        currentFormId: nextCurrentFormId,
-        projects,
-        currentProjectId: nextCurrentProjectId
-      },
-      (response) => {
-        if (!response?.ok) return;
-        state.forms = response.forms;
-        state.projects = response.projects || projects;
-        state.currentFormId = response.currentFormId;
-        state.currentProjectId = response.currentProjectId || nextCurrentProjectId;
-        if (projectChanged) {
-          state.formsScrollTop = 0;
-          state.scrollActiveOnRender = false;
-        }
-        render();
-      }
-    );
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName !== "local") return;
+    if (!Object.keys(changes).some((key) => dockDataStorageKeys.has(key))) return;
+
+    const previousProjectId = state.currentProjectId;
+    const nextProjectId = changes.currentProjectId?.newValue || state.currentProjectId;
+    const nextProjects = changes.projects?.newValue;
+    const formsByProject = changes.formsByProject?.newValue;
+    const currentFormIdsByProject = changes.currentFormIdsByProject?.newValue;
+    const projectForms = formsByProject?.[nextProjectId];
+    const fallbackForms = changes.forms?.newValue;
+    const nextForms = Array.isArray(projectForms)
+      ? projectForms
+      : Array.isArray(fallbackForms)
+        ? fallbackForms
+        : state.forms;
+    const requestedFormId =
+      currentFormIdsByProject?.[nextProjectId] ||
+      changes.currentFormId?.newValue ||
+      state.currentFormId;
+
+    if (Array.isArray(nextProjects)) state.projects = nextProjects;
+    state.currentProjectId = nextProjectId;
+    state.forms = nextForms;
+    state.currentFormId = nextForms.some((form) => form.id === requestedFormId)
+      ? requestedFormId
+      : nextForms[0]?.id || "";
+
+    if (previousProjectId !== nextProjectId) {
+      state.formsScrollTop = 0;
+      state.scrollActiveOnRender = false;
+    }
+    render();
+  });
+
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.type === "SLOT_MATRIX_SHOW_DOCK") {
+      sessionStorage.setItem("slotMatrixDockOpenOnce", "true");
+      sessionStorage.removeItem("slotMatrixDockHidden");
+      host.style.display = "";
+      sendResponse({ ok: true });
+      return;
+    }
+    if (message?.type !== "SLOT_MATRIX_DOCK_DATA_UPDATED") return;
+
+    const forms = Array.isArray(message.forms) ? message.forms : state.forms;
+    const projects = Array.isArray(message.projects) ? message.projects : state.projects;
+    const requestedFormId = message.currentFormId || state.currentFormId;
+    const requestedProjectId = message.currentProjectId || state.currentProjectId;
+    const projectChanged = requestedProjectId !== state.currentProjectId;
+
+    state.forms = forms;
+    state.projects = projects;
+    state.currentProjectId = requestedProjectId;
+    state.currentFormId = forms.some((form) => form.id === requestedFormId)
+      ? requestedFormId
+      : forms[0]?.id || "";
+    if (projectChanged) {
+      state.formsScrollTop = 0;
+      state.scrollActiveOnRender = false;
+    }
+    render();
   });
 
   function styles() {
@@ -177,6 +253,11 @@
         all: initial;
         color-scheme: dark;
         font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      :host,
+      :host * {
+        cursor: default !important;
       }
 
       .dock {
@@ -313,32 +394,6 @@
         transition: color 130ms ease, border-color 130ms ease, background 130ms ease, transform 130ms ease;
       }
 
-      .drag-handle {
-        all: unset;
-        box-sizing: border-box;
-        display: grid;
-        place-items: center;
-        width: var(--btn-size);
-        height: 22px;
-        border-radius: 10px;
-        color: #7c7c7c;
-        cursor: grab;
-        user-select: none;
-      }
-
-      .dock.horizontal .drag-handle {
-        width: 22px;
-        height: var(--btn-size);
-      }
-
-      .drag-handle:active {
-        cursor: grabbing;
-      }
-
-      .drag-handle svg {
-        pointer-events: none;
-      }
-
       button:hover {
         border-color: rgba(255, 255, 255, 0.22);
         background: rgba(42, 42, 42, 0.96);
@@ -421,8 +476,25 @@
       }
 
       .clear {
-        color: #cfcfcf;
-        border-color: rgba(255, 255, 255, 0.12);
+        color: #e2b879;
+        border-color: rgba(226, 184, 121, 0.22);
+      }
+
+      .clear:hover {
+        color: #ffd497;
+        border-color: rgba(226, 184, 121, 0.4);
+        background: rgba(61, 46, 27, 0.96);
+      }
+
+      .dock-close {
+        color: #d6a3a0;
+        border-color: rgba(255, 98, 91, 0.2);
+      }
+
+      .dock-close:hover {
+        color: #ff8d87;
+        border-color: rgba(255, 98, 91, 0.36);
+        background: rgba(70, 34, 32, 0.96);
       }
 
       .forms {
@@ -570,7 +642,8 @@
       }
 
       .dock.horizontal .forms-popover.open-bottom,
-      .dock.horizontal .projects-popover.open-bottom {
+      .dock.horizontal .projects-popover.open-bottom,
+      .dock.horizontal .settings-popover.open-bottom {
         top: calc(100% + 10px);
         right: auto;
         left: 50%;
@@ -595,6 +668,50 @@
 
       .dock.horizontal .settings-popover {
         grid-auto-flow: row;
+      }
+
+      .popover-head {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        min-height: 28px;
+        color: #bdbdbd;
+        background: rgba(13, 13, 13, 0.96);
+        font: 900 10px/1 system-ui, sans-serif;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .settings-popover .popover-head {
+        background: rgba(12, 12, 12, 0.96);
+      }
+
+      .popover-close {
+        all: unset;
+        box-sizing: border-box;
+        display: grid;
+        place-items: center;
+        width: 26px;
+        height: 26px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 8px;
+        color: #a8a8a8;
+        background: rgba(32, 32, 32, 0.92);
+        cursor: pointer;
+      }
+
+      .popover-close:hover {
+        color: #fff;
+        border-color: rgba(255, 255, 255, 0.24);
+        background: rgba(48, 48, 48, 0.98);
+      }
+
+      .popover-close svg {
+        width: 14px;
+        height: 14px;
       }
 
       .settings-popover.open-right {
@@ -774,16 +891,6 @@
           height: var(--btn-size);
         }
 
-        .drag-handle {
-          width: var(--btn-size);
-          height: 20px;
-        }
-
-        .dock.horizontal .drag-handle {
-          width: 20px;
-          height: var(--btn-size);
-        }
-
         .send {
           width: var(--send-size);
           height: var(--send-size);
@@ -809,14 +916,14 @@
         '<svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="7" y="7" width="10" height="10"/></svg>',
       plus:
         '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg>',
-      grip:
-        '<svg viewBox="0 0 24 24" width="18" height="24" fill="currentColor"><circle cx="9" cy="5" r="1.4"/><circle cx="15" cy="5" r="1.4"/><circle cx="9" cy="12" r="1.4"/><circle cx="15" cy="12" r="1.4"/><circle cx="9" cy="19" r="1.4"/><circle cx="15" cy="19" r="1.4"/></svg>',
       pin:
         '<svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 17v5"/><path d="M5 17h14"/><path d="m6 11 4-8h4l4 8"/><path d="M8 11h8"/></svg>',
       pinOff:
         '<svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 3 18 18"/><path d="M12 17v5"/><path d="M5 17h12"/><path d="m6 11 3-6"/><path d="M14 3l4 8"/><path d="M8 11h3"/></svg>',
       trash:
         '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v5M14 11v5"/></svg>',
+      brush:
+        '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 22-1-4"/><path d="M19 14a1 1 0 0 0 1-1v-1a2 2 0 0 0-2-2h-3a1 1 0 0 1-1-1V4a2 2 0 0 0-4 0v5a1 1 0 0 1-1 1H6a2 2 0 0 0-2 2v1a1 1 0 0 0 1 1"/><path d="M19 14H5l-1.973 6.767A1 1 0 0 0 4 22h16a1 1 0 0 0 .973-1.233Z"/><path d="m8 22 1-4"/></svg>',
       list:
         '<svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><path d="M6 7h12M6 12h12M6 17h12"/></svg>',
       project:
@@ -825,6 +932,8 @@
         '<svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3h7v7"/><path d="M10 14 21 3"/><path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/></svg>',
       rotate:
         '<svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 12a9 9 0 0 1-9 9 8.8 8.8 0 0 1-6.2-2.6"/><path d="M3 12a9 9 0 0 1 15.2-6.4"/><path d="M18 2v4h-4"/><path d="M6 22v-4h4"/></svg>',
+      power:
+        '<svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/></svg>',
       settings:
         '<svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.82l.04.04a2 2 0 0 1-2.82 2.82l-.04-.04a1.7 1.7 0 0 0-1.82-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 0 1-4 0v-.14a1.7 1.7 0 0 0-1.03-1.56 1.7 1.7 0 0 0-1.82.34l-.04.04a2 2 0 0 1-2.82-2.82l.04-.04A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 0 1 0-4h.04A1.7 1.7 0 0 0 4.6 8.94a1.7 1.7 0 0 0-.34-1.82l-.04-.04a2 2 0 0 1 2.82-2.82l.04.04a1.7 1.7 0 0 0 1.82.34H9a1.7 1.7 0 0 0 1.03-1.56V3a2 2 0 0 1 4 0v.08A1.7 1.7 0 0 0 15.06 4.6a1.7 1.7 0 0 0 1.82-.34l.04-.04a2 2 0 0 1 2.82 2.82l-.04.04a1.7 1.7 0 0 0-.34 1.82V9a1.7 1.7 0 0 0 1.56 1.03H21a2 2 0 0 1 0 4h-.08A1.7 1.7 0 0 0 19.4 15Z"/></svg>'
     };
@@ -861,14 +970,13 @@
           ? "open-left"
           : "open-right";
     const projectsDirection = formsDirection;
-    const settingsDirection = state.position?.x > window.innerWidth / 2 ? "open-left" : "open-right";
+    const settingsDirection = formsDirection;
     const sendStateClass =
       state.statusType === "ok" ? "ok-flash" : state.statusType === "error" ? "error-flash" : "";
     shadow.innerHTML = `
       <style>${styles()}</style>
       <div class="dock ${state.pinned ? "" : "unpinned"} ${state.collapsed ? "collapsed" : ""} ${state.dockSize} ${state.dockOrientation}" style="${style}">
-        <span class="drag-handle" data-action="drag" title="Drag toolbar">${icon("grip")}</span>
-        <button class="clear" data-action="clear" title="Clear session">${icon("trash")}</button>
+        <button class="clear" data-action="clear" title="Clear session">${icon("brush")}</button>
         <button class="forms" data-action="projects" title="Projects">${icon("project")}</button>
         <span class="send-wrap">
           <button class="send ${state.sending ? "sending" : sendStateClass}" data-action="send" title="Send form data">
@@ -878,9 +986,14 @@
         </span>
         <button class="forms" data-action="forms" title="Loaded forms">${icon("list")}</button>
         <button class="settings ${state.settingsOpen ? "active" : ""}" data-action="settings" title="Dock settings">${icon("settings")}</button>
+        <button class="dock-close" data-action="hide-dock" title="Hide dock on this tab">${icon("power")}</button>
         ${
           state.settingsOpen
             ? `<div class="settings-popover ${settingsDirection}">
+                <div class="popover-head">
+                  <span>Settings</span>
+                  <button class="popover-close" data-action="close-panel" title="Close settings">${icon("close")}</button>
+                </div>
                 <div class="settings-tools">
                   <button data-action="open-tool" title="Open tool">${icon("external")}</button>
                   <button class="size" data-action="size" title="Resize dock">${state.dockSize.toUpperCase()}</button>
@@ -919,6 +1032,10 @@
         ${
           state.projectsOpen
             ? `<div class="projects-popover ${projectsDirection}">
+                <div class="popover-head">
+                  <span>Projects</span>
+                  <button class="popover-close" data-action="close-panel" title="Close projects">${icon("close")}</button>
+                </div>
                 ${state.projects
                   .map(
                     (project) => `
@@ -937,6 +1054,10 @@
         ${
           state.formsOpen
             ? `<div class="forms-popover ${formsDirection}">
+                <div class="popover-head">
+                  <span>Forms</span>
+                  <button class="popover-close" data-action="close-panel" title="Close forms">${icon("close")}</button>
+                </div>
                 ${state.forms
                   .map(
                     (form) => `
@@ -958,11 +1079,13 @@
       </div>
     `;
 
-    shadow.querySelector('[data-action="drag"]')?.addEventListener("pointerdown", startDrag);
+    shadow.querySelector(".dock")?.addEventListener("pointerdown", startDrag);
     shadow.querySelector('[data-action="clear"]')?.addEventListener("click", clearData);
     shadow.querySelector('[data-action="projects"]')?.addEventListener("click", toggleProjects);
     shadow.querySelector('[data-action="forms"]')?.addEventListener("click", toggleForms);
     shadow.querySelector('[data-action="settings"]')?.addEventListener("click", toggleSettings);
+    shadow.querySelector('[data-action="hide-dock"]')?.addEventListener("click", hideDock);
+    shadow.querySelector('[data-action="close-panel"]')?.addEventListener("click", closeOpenPanel);
     shadow.querySelector('[data-action="open-tool"]')?.addEventListener("click", openTool);
     shadow.querySelector('[data-action="size"]')?.addEventListener("click", cycleSize);
     shadow.querySelector('[data-action="rotate"]')?.addEventListener("click", toggleOrientation);
@@ -1063,6 +1186,14 @@
   function startDrag(event) {
     const dock = shadow.querySelector(".dock");
     if (!dock) return;
+    if (event.button !== 0) return;
+    if (
+      event.target.closest(
+        "button, input, label, .forms-popover, .projects-popover, .settings-popover"
+      )
+    ) {
+      return;
+    }
 
     event.preventDefault();
     state.dragging = true;
@@ -1199,6 +1330,24 @@
       dockSettingsOpen: state.settingsOpen
     });
     render();
+  }
+
+  async function closeOpenPanel() {
+    state.formsOpen = false;
+    state.projectsOpen = false;
+    state.settingsOpen = false;
+    await chrome.storage.local.set({
+      dockFormsOpen: false,
+      dockProjectsOpen: false,
+      dockSettingsOpen: false
+    });
+    render();
+  }
+
+  function hideDock() {
+    sessionStorage.setItem("slotMatrixDockHidden", "true");
+    sessionStorage.removeItem("slotMatrixDockOpenOnce");
+    host.style.display = "none";
   }
 
   function openTool() {

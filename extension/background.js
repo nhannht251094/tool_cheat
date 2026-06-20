@@ -10,7 +10,7 @@ const DEFAULT_CONFIG = {
   bearerToken: ""
 };
 
-const DEFAULT_DOCK_ALLOWED_SITES = [
+const LEGACY_DOCK_ALLOWED_SITES = [
   "https://cheat.staging.enostd.gay/*",
   "https://iframe-tektale.staging.enostd.gay/*",
   "https://cheat.doithe47.com/*",
@@ -21,10 +21,22 @@ const DEFAULT_DOCK_ALLOWED_SITES = [
   "http://127.0.0.1/*"
 ];
 
+const DEFAULT_DOCK_ALLOWED_SITES = [];
+
 const DEFAULT_DOCK_CONFIG = {
   dockEnabled: true,
   dockAllowedSites: DEFAULT_DOCK_ALLOWED_SITES
 };
+
+chrome.runtime.onInstalled.addListener(async () => {
+  const stored = await chrome.storage.local.get({ dockAllowedSites: [] });
+  const sites = Array.isArray(stored.dockAllowedSites) ? stored.dockAllowedSites : [];
+  const legacySites = new Set(LEGACY_DOCK_ALLOWED_SITES);
+  const manualSites = sites.filter((site) => !legacySites.has(site));
+  if (manualSites.length !== sites.length) {
+    await chrome.storage.local.set({ dockAllowedSites: manualSites });
+  }
+});
 
 function sitePatternFromUrl(url) {
   try {
@@ -55,12 +67,23 @@ async function saveAllowedSite(pattern) {
 }
 
 async function openDockOnTab(tabId) {
+  try {
+    const response = await chrome.tabs.sendMessage(tabId, { type: "SLOT_MATRIX_SHOW_DOCK" });
+    if (response?.ok) return response;
+  } catch {
+    // The content script may have exited because this site was not allowed yet.
+  }
+
   await chrome.scripting.executeScript({
     target: { tabId },
     func: () => {
       sessionStorage.setItem("slotMatrixDockOpenOnce", "true");
-      window.location.reload();
+      sessionStorage.removeItem("slotMatrixDockHidden");
     }
+  });
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    files: ["content.js"]
   });
   return { ok: true };
 }
@@ -93,12 +116,31 @@ async function getConfig() {
   const stored = await chrome.storage.local.get({
     ...DEFAULT_CONFIG,
     ...DEFAULT_DOCK_CONFIG,
-    dockUserId: ""
+    dockUserId: "",
+    forms: DEFAULT_FORMS,
+    currentFormId: "",
+    currentProjectId: DEFAULT_PROJECTS[0].id,
+    formsByProject: {},
+    currentFormIdsByProject: {}
   });
-  const config = { ...DEFAULT_CONFIG, ...DEFAULT_DOCK_CONFIG, ...stored };
-  const dockUserId = String(config.dockUserId || "").trim();
-  if (dockUserId) config.userId = dockUserId;
-  delete config.dockUserId;
+  const projectForms = stored.formsByProject?.[stored.currentProjectId];
+  const forms = projectForms?.length ? projectForms : stored.forms;
+  const currentFormId =
+    stored.currentFormIdsByProject?.[stored.currentProjectId] || stored.currentFormId;
+  const currentForm = forms.find((form) => form.id === currentFormId) || forms[0];
+  const storedDefaults = Object.fromEntries(
+    Object.keys(DEFAULT_CONFIG).map((key) => [key, stored[key]])
+  );
+  const config = {
+    ...DEFAULT_CONFIG,
+    ...storedDefaults,
+    ...(currentForm?.config || {}),
+    ...DEFAULT_DOCK_CONFIG,
+    dockEnabled: stored.dockEnabled,
+    dockAllowedSites: stored.dockAllowedSites
+  };
+  const storedDockUserId = String(stored.dockUserId || "").trim();
+  if (storedDockUserId) config.userId = storedDockUserId;
   return config;
 }
 
@@ -137,13 +179,26 @@ async function getProjects() {
   };
 }
 
+async function broadcastDockData(data) {
+  const tabs = await chrome.tabs.query({});
+  await Promise.allSettled(
+    tabs
+      .filter((tab) => typeof tab.id === "number")
+      .map((tab) =>
+        chrome.tabs.sendMessage(tab.id, {
+          type: "SLOT_MATRIX_DOCK_DATA_UPDATED",
+          ...data
+        })
+      )
+  );
+}
+
 function toFormBody(config) {
   const params = new URLSearchParams();
   const skipKeys = new Set([
     "endpoint",
     "bearerToken",
     "token",
-    "currency",
     "currentFormId",
     "dockUserId",
     "dockUserIds",
@@ -319,6 +374,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "SAVE_FORMS") {
     const forms = Array.isArray(message.forms) ? message.forms : DEFAULT_FORMS;
     const currentFormId = message.currentFormId || forms[0]?.id || "";
+    const currentForm = forms.find((form) => form.id === currentFormId) || forms[0];
     const projects = Array.isArray(message.projects) ? message.projects : undefined;
     const currentProjectId = message.currentProjectId || projects?.[0]?.id || "";
     chrome.storage.local
@@ -330,12 +386,21 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           formsByProject[currentProjectId] = forms;
           currentFormIdsByProject[currentProjectId] = currentFormId;
         }
-        const patch = { forms, currentFormId, formsByProject, currentFormIdsByProject };
+        const patch = {
+          ...(currentForm?.config || {}),
+          forms,
+          currentFormId,
+          formsByProject,
+          currentFormIdsByProject
+        };
         if (projects) patch.projects = projects;
         if (currentProjectId) patch.currentProjectId = currentProjectId;
         return chrome.storage.local.set(patch);
       })
-      .then(() => sendResponse({ ok: true, forms, currentFormId, projects, currentProjectId }));
+      .then(async () => {
+        await broadcastDockData({ forms, currentFormId, projects, currentProjectId });
+        sendResponse({ ok: true, forms, currentFormId, projects, currentProjectId });
+      });
     return true;
   }
 

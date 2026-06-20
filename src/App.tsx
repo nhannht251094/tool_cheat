@@ -36,8 +36,10 @@ export default function App() {
   const [jsonDropState, setJsonDropState] = useState<"idle" | "over" | "importing" | "done" | "error">(
     "idle"
   );
+  const [toast, setToast] = useState<{ message: string; tone: "info" | "success" | "error" } | null>(null);
   const dropDepthRef = useRef(0);
   const dropMessageTimerRef = useRef<number | null>(null);
+  const toastTimerRef = useRef<number | null>(null);
   const {
     projects,
     activeProjectId,
@@ -90,6 +92,29 @@ export default function App() {
       (file) => file.type === "application/json" || file.name.toLowerCase().endsWith(".json")
     );
   }
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = localStorage.getItem("slot-matrix-theme") || "dark";
+  }, []);
+
+  useEffect(() => {
+    function handleToast(event: Event) {
+      const detail = (event as CustomEvent<{ message?: string; tone?: "info" | "success" | "error" }>).detail;
+      if (!detail?.message) return;
+      setToast({ message: detail.message, tone: detail.tone ?? "info" });
+      if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = window.setTimeout(() => {
+        setToast(null);
+        toastTimerRef.current = null;
+      }, 2400);
+    }
+
+    window.addEventListener("slot-matrix-toast", handleToast);
+    return () => {
+      window.removeEventListener("slot-matrix-toast", handleToast);
+      if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     function handleShortcut(event: KeyboardEvent) {
@@ -246,6 +271,11 @@ export default function App() {
                     : "Reading project data..."}
             </span>
           </div>
+        </div>
+      )}
+      {toast && (
+        <div className={`app-toast ${toast.tone}`} role="status" aria-live="polite">
+          {toast.message}
         </div>
       )}
     </main>

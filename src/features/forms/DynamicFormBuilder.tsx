@@ -3,6 +3,7 @@ import { useForm } from "react-hook-form";
 import { Button } from "../../components/ui/Button";
 import { Panel } from "../../components/ui/Panel";
 import { useStudioStore } from "../../store/useStudioStore";
+import { ENVIRONMENTS } from "../../lib/apiEndpoint";
 import type { FieldConfig } from "../../types/studio";
 
 const fieldTypes: FieldConfig["type"][] = [
@@ -77,9 +78,9 @@ export function DynamicFormBuilder() {
             disabled={field.readonly}
             onChange={(event) => updateFormValue(field.key, event.target.value)}
           >
-            <option>DEV</option>
-            <option>STAGING</option>
-            <option>PROD</option>
+            {ENVIRONMENTS.map((environment) => (
+              <option key={environment}>{environment}</option>
+            ))}
           </select>
         </label>
       );
