@@ -19,6 +19,10 @@ source code into `main`.
 3. A GitHub Actions workflow builds `source` and commits `dist/` to `main`.
 4. GitHub Pages continues serving the existing `main` branch.
 
+The `CI` workflow validates pushes to `ramp/source` and `source`, plus pull
+requests targeting `source`. Codex Cloud and other remote contributors should
+follow the repository instructions in `AGENTS.md`.
+
 ## Git Identity
 
 Use this local repository identity before committing or deploying:
