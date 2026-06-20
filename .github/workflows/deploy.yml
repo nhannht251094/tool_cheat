@@ -47,6 +47,7 @@ jobs:
         run: |
           rsync -a --delete \
             --exclude .git \
+            --exclude .github \
             --exclude CNAME \
             --exclude .nojekyll \
             source/dist/ deploy/

@@ -8,8 +8,9 @@ This project uses one GitHub repository for source and deployment:
 - Static deploy branch: `main`
 - Custom domain: `www.rampnhan.online`
 
-`main` already serves GitHub Pages and must contain built static files only.
-Do not merge source code into `main`.
+`main` already serves GitHub Pages and contains built static files plus the
+`.github/workflows/deploy.yml` automation metadata. Do not merge application
+source code into `main`.
 
 ## Development Flow
 
@@ -52,5 +53,5 @@ Current intended identity:
 4. Merge `ramp/source` into `source` and push `source`.
 5. Verify the `Deploy website` GitHub Actions workflow succeeds.
 
-The workflow preserves `CNAME` and `.nojekyll` while synchronizing `dist/` to
-`main`. Do not manually commit source files to `main`.
+The workflow preserves `.github`, `CNAME`, and `.nojekyll` while synchronizing
+`dist/` to `main`. Do not manually commit application source files to `main`.
