@@ -1,17 +1,22 @@
 # Deployment Notes
 
-This project has two GitHub repositories with different purposes.
+This project uses one GitHub repository for source and deployment:
 
-## Source Code Repository
+- Remote: `git@github.com:nhannht251094/tool_cheat.git`
+- Personal development branch: `ramp/source`
+- Stable source branch: `source`
+- Static deploy branch: `main`
+- Custom domain: `www.rampnhan.online`
 
-- Remote: `git@github.com:nhannht251094/ToolCheat.git`
-- Source branch: `ramp/source`
-- Purpose: stores the React/Vite source code.
-- Do not use this repository as the live static deploy target.
+`main` already serves GitHub Pages and must contain built static files only.
+Do not merge source code into `main`.
 
-Every deploy must also commit the complete source state and push it to
-`origin/ramp/source`. Keep using this stable branch across versions; record the
-deployed version in the commit message instead of creating a versioned branch.
+## Development Flow
+
+1. Commit and push work to `ramp/source`.
+2. Merge `ramp/source` into `source` when the changes are ready to deploy.
+3. A GitHub Actions workflow builds `source` and commits `dist/` to `main`.
+4. GitHub Pages continues serving the existing `main` branch.
 
 ## Git Identity
 
@@ -27,16 +32,6 @@ Current intended identity:
 - `user.name`: `nhannht251094`
 - `user.email`: `trungnhan.it757@gmail.com`
 
-## Live Deploy Repository
-
-- Remote: `git@github.com:nhannht251094/tool_cheat.git`
-- Branch: `main`
-- Purpose: stores the built static site output from `dist/`.
-- Custom domain: `www.rampnhan.online`
-- Keep these files in the deploy repo:
-  - `CNAME`
-  - `.nojekyll`
-
 ## Deploy Steps
 
 1. Increment the Tool Cheat patch version. This is required for every deploy so the version badge can confirm whether the live website is current:
@@ -47,19 +42,15 @@ Current intended identity:
 
    This updates both `package.json` and `package-lock.json`. The visible badge is shown beside `Internal Tools` as `vX.Y.Z`.
 
-2. Build the source project:
+2. Run the local checks before publishing:
 
    ```bash
-   npm run build
+    npm run build
    ```
 
-3. Update the deploy repository (`git@github.com:nhannht251094/tool_cheat.git`) with the contents of `dist/`.
+3. Commit and push the complete source state to `ramp/source`.
+4. Merge `ramp/source` into `source` and push `source`.
+5. Verify the `Deploy website` GitHub Actions workflow succeeds.
 
-4. Preserve `CNAME` and `.nojekyll` in the deploy repository.
-
-5. Commit and push the deploy repository to `main`.
-
-6. Commit the complete source state with the deployed version and push it to
-   `origin/ramp/source` in the source repository.
-
-Do not push the source branch directly to `tool_cheat.git`; it has a separate static-site history.
+The workflow preserves `CNAME` and `.nojekyll` while synchronizing `dist/` to
+`main`. Do not manually commit source files to `main`.
