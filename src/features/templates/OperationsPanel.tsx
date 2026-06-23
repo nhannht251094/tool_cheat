@@ -17,16 +17,6 @@ import { importProjectsFromJsonFile } from "../../lib/projectExchange";
 import { notify } from "../../lib/uiEvents";
 import { useStudioStore } from "../../store/useStudioStore";
 
-const fallbackForms = [
-  "default",
-  "NoWin",
-  "Đập mob",
-  "Đập mobs",
-  "Mob",
-  "SuperMegaWin",
-  "MegaWin"
-];
-
 const OPERATIONS_WIDTH_KEY = "slot-matrix-operations-width";
 const OPERATIONS_COLLAPSED_KEY = "slot-matrix-operations-collapsed";
 const MIN_OPERATIONS_WIDTH = 280;
@@ -77,19 +67,13 @@ export function OperationsPanel() {
     reorderPreset
   } = useStudioStore();
   const project = projects.find((item) => item.projectId === activeProjectId);
-  const forms = project?.presets.length
-    ? project.presets.map((preset) => ({
+  const forms =
+    project?.presets.map((preset) => ({
         id: preset.id,
         name: preset.name,
         hash: `#${preset.id.slice(-7)}`,
         scenario: preset.tableType || preset.scenario || "normal"
-      }))
-    : fallbackForms.map((name, index) => ({
-        id: `fallback-${index}`,
-        name,
-        hash: `#fallback-${index + 1}`,
-        scenario: "normal"
-      }));
+      })) ?? [];
   const formSearchValue = formSearch.trim().toLowerCase();
   const filteredForms = formSearchValue
     ? forms.filter((form) =>
@@ -263,7 +247,7 @@ export function OperationsPanel() {
               .join(" ")}
             key={form.id}
             title={form.name}
-            draggable={!form.id.startsWith("fallback-")}
+            draggable
             onDragStart={(event) => {
               setDraggingId(form.id);
               event.dataTransfer.effectAllowed = "move";
@@ -305,7 +289,7 @@ export function OperationsPanel() {
                 <FileText size={16} />
                 <input
                   aria-label="Form name"
-                  readOnly={form.id.startsWith("fallback-")}
+                  readOnly={false}
                   title={form.name}
                   value={nameDrafts[form.id] ?? form.name}
                   onChange={(event) => updateNameDraft(form.id, event.target.value)}

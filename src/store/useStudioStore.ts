@@ -16,7 +16,6 @@ import {
   DEFAULT_ENDPOINT,
   DEFAULT_SERVICE_ID,
   DEFAULT_USER_ID,
-  defaultPowerUpSymbolCode,
   tableFormatFromMatrix
 } from "../lib/slotPayload";
 import { createUuid } from "../lib/id";
@@ -146,18 +145,6 @@ const starterFields: FieldConfig[] = [
     placeholder: "4,4,4,4,4",
     category: "Form Data"
   },
-  {
-    id: "field-power-up",
-    label: "powerUpSymbolCode",
-    key: "powerUpSymbolCode",
-    type: "textarea",
-    defaultValue: defaultPowerUpSymbolCode(4, 5),
-    required: true,
-    readonly: false,
-    hidden: false,
-    placeholder: "C3,C3,C3...",
-    category: "Form Data"
-  }
 ];
 
 const defaultMatrix = [
@@ -223,6 +210,93 @@ function nextProjectServiceId(projects: Project[]) {
     .filter((value) => Number.isFinite(value));
   const next = numericIds.length ? Math.max(...numericIds) + 1 : Number(DEFAULT_SERVICE_ID);
   return String(next);
+}
+
+function defaultProjectFields(serviceId: string): FieldConfig[] {
+  return [
+    {
+      id: `field-service-${serviceId}`,
+      label: "serviceId",
+      key: "serviceId",
+      type: "text",
+      defaultValue: serviceId,
+      required: true,
+      readonly: false,
+      hidden: false,
+      placeholder: serviceId,
+      category: "Form Data"
+    },
+    {
+      id: `field-user-${serviceId}`,
+      label: "userId",
+      key: "userId",
+      type: "text",
+      defaultValue: DEFAULT_USER_ID,
+      required: true,
+      readonly: false,
+      hidden: false,
+      placeholder: DEFAULT_USER_ID,
+      category: "Form Data"
+    },
+    {
+      id: `field-matrix-${serviceId}`,
+      label: "matrixData",
+      key: "matrixData",
+      type: "textarea",
+      defaultValue: "",
+      required: true,
+      readonly: false,
+      hidden: true,
+      placeholder: "Auto-generated from matrix grid",
+      category: "Auto"
+    },
+    {
+      id: `field-table-format-${serviceId}`,
+      label: "tableFormat",
+      key: "tableFormat",
+      type: "text",
+      defaultValue: "4,4,4,4,4",
+      required: true,
+      readonly: false,
+      hidden: false,
+      placeholder: "4,4,4,4,4",
+      category: "Form Data"
+    }
+  ];
+}
+
+function createDefaultProject(projects: Project[]): Project {
+  const serviceId = nextProjectServiceId(projects);
+  const matrix = createMatrix(4, 5, "C3");
+  const fieldConfigs = defaultProjectFields(serviceId);
+  const formValues = valuesWithMatrix(valuesFromFields(fieldConfigs), matrix, 4, 5);
+  const now = Date.now();
+  return {
+    projectId: `project-${now}`,
+    uuid: createUuid(),
+    name: `Untitled Slot ${projects.length + 1}`,
+    serviceId,
+    endpoint: endpointForServiceId(DEFAULT_ENDPOINT, serviceId),
+    token: "",
+    defaultMatrix: matrix,
+    fieldConfigs,
+    savedForms: [],
+    presets: [
+      {
+        id: `preset-${now}`,
+        name: "Default",
+        scenario: "normal",
+        tableType: "normal",
+        rows: 4,
+        cols: 5,
+        cells: matrix,
+        formValues,
+        createdAt: now,
+        updatedAt: now
+      }
+    ],
+    updatedAt: now
+  };
 }
 
 function withProjectServiceId(project: Project, serviceId: string): Project {
@@ -434,27 +508,18 @@ export const useStudioStore = create<StudioState>()(
       },
       createProject: () =>
         set((state) => {
-          const serviceId = nextProjectServiceId(state.projects);
-          const project: Project = {
-            ...withProjectServiceId(starterProject, serviceId),
-            projectId: `project-${Date.now()}`,
-            uuid: createUuid(),
-            name: `Untitled Slot ${state.projects.length + 1}`,
-            updatedAt: Date.now(),
-            presets: []
-          };
+          const project = createDefaultProject(state.projects);
           const formValues = valuesFromFields(project.fieldConfigs);
+          const rows = project.defaultMatrix.length;
+          const cols = project.defaultMatrix[0]?.length ?? 5;
           return {
             projects: [project, ...state.projects],
             activeProjectId: project.projectId,
-            activePresetId: "",
-            rows: project.defaultMatrix.length,
-            cols: project.defaultMatrix[0]?.length ?? 5,
+            activePresetId: project.presets[0]?.id ?? "",
+            rows,
+            cols,
             matrix: project.defaultMatrix,
-            rawMatrix: matrixToRaw(
-              project.defaultMatrix,
-              String(formValues.tableFormat || tableFormatFromMatrix(4, 5))
-            ),
+            rawMatrix: rawMatrixFromValues(project.defaultMatrix, rows, cols, formValues),
             formValues,
             apiRequest: {
               ...state.apiRequest,
@@ -587,8 +652,7 @@ export const useStudioStore = create<StudioState>()(
         set((state) => {
           const formValues = {
             ...state.formValues,
-            tableFormat: tableFormatFromMatrix(rows, cols),
-            powerUpSymbolCode: defaultPowerUpSymbolCode(rows, cols)
+            tableFormat: tableFormatFromMatrix(rows, cols)
           };
           return {
             projects: syncActivePreset(state, next, rows, cols, formValues),
@@ -643,8 +707,7 @@ export const useStudioStore = create<StudioState>()(
           const next = rawToMatrixAuto(state.rawMatrix, tableFormat, dynamicTableFormat);
           const formValues = {
             ...state.formValues,
-            tableFormat,
-            powerUpSymbolCode: defaultPowerUpSymbolCode(next.rows, next.cols)
+            tableFormat
           };
           return {
             projects: syncActivePreset(state, next.matrix, next.rows, next.cols, formValues),

@@ -5,7 +5,6 @@ export type SlotFormPayload = {
   userId: string;
   matrixData: string;
   tableFormat: string;
-  powerUpSymbolCode: string;
 } & Record<string, string>;
 
 export const DEFAULT_SERVICE_ID = "9703";
@@ -33,11 +32,11 @@ export function buildSlotFormPayload(
     serviceId: String(formValues.serviceId ?? DEFAULT_SERVICE_ID),
     userId: String(formValues.userId ?? DEFAULT_USER_ID),
     matrixData,
-    tableFormat,
-    powerUpSymbolCode: String(
-      formValues.powerUpSymbolCode || defaultPowerUpSymbolCode(rows, cols)
-    )
+    tableFormat
   };
+  if (formValues.powerUpSymbolCode != null && formValues.powerUpSymbolCode !== "") {
+    payload.powerUpSymbolCode = String(formValues.powerUpSymbolCode);
+  }
   const reservedKeys = new Set([
     "serviceId",
     "userId",
