@@ -27,7 +27,8 @@ export function buildSlotFormPayload(
   formValues: Record<string, unknown>
 ): SlotFormPayload {
   const tableFormat = String(formValues.tableFormat || tableFormatFromMatrix(rows, cols));
-  const matrixData = matrixToRaw(matrix, tableFormat);
+  const dynamicTableFormat = String(formValues.dynamicTableFormat || "");
+  const matrixData = matrixToRaw(matrix, tableFormat, dynamicTableFormat);
   const payload: SlotFormPayload = {
     serviceId: String(formValues.serviceId ?? DEFAULT_SERVICE_ID),
     userId: String(formValues.userId ?? DEFAULT_USER_ID),

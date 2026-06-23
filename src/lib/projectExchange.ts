@@ -28,6 +28,9 @@ type ExternalCustomField = {
 type ExternalSavedForm = {
   id?: string;
   name?: string;
+  projectId?: string;
+  projectName?: string;
+  environment?: string;
   data?: Record<string, unknown>;
   tableType?: string;
   createdAt?: number;
@@ -84,15 +87,6 @@ const BUILT_IN_FIELD_KEYS = new Set([
   "freegameTableFormat",
   "powerUpSymbolCode"
 ]);
-
-const BUILT_IN_FIELD_ORDER = [
-  "serviceId",
-  "userId",
-  "matrixData",
-  "tableFormat",
-  "freegameTableFormat",
-  "powerUpSymbolCode"
-];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -184,12 +178,12 @@ function normalizeFieldConfigs(fields: unknown, serviceId: string, rows: number,
     ["userId", DEFAULT_USER_ID, "text"],
     ["matrixData", "", "textarea"],
     ["tableFormat", tableFormatFromMatrix(rows, cols), "text"],
-    ["freegameTableFormat", tableFormatFromMatrix(rows, cols), "text"],
-    ["powerUpSymbolCode", defaultPowerUpSymbolCode(rows, cols), "textarea"]
+    ["freegameTableFormat", tableFormatFromMatrix(rows, cols), "text"]
   ];
+  const missingDefaults = inputFields.length ? [] : requiredDefaults;
 
   return [
-    ...requiredDefaults
+    ...missingDefaults
       .filter(([key]) => !byKey.has(key))
       .map(([key, defaultValue, type], index) =>
         fieldFromExternal(key, undefined, defaultValue, index, type)
@@ -219,7 +213,11 @@ function normalizePresets(presets: unknown, serviceId: string, fallbackMatrix: s
     const fallbackRows = fallbackMatrix.length || 4;
     const fallbackCols = fallbackMatrix[0]?.length || 5;
     const tableFormat = asString(formValues.tableFormat, tableFormatFromMatrix(fallbackRows, fallbackCols));
-    const parsedFromRaw = rawToMatrixAuto(asString(formValues.matrixData, ""), tableFormat);
+    const parsedFromRaw = rawToMatrixAuto(
+      asString(formValues.matrixData, ""),
+      tableFormat,
+      asString(formValues.dynamicTableFormat)
+    );
     const cellRows = Array.isArray(preset.cells) ? preset.cells.length : 0;
     const cellCols = Array.isArray(preset.cells?.[0]) ? preset.cells[0].length : 0;
     const rows = Math.max(1, Number(preset.rows) || cellRows || parsedFromRaw.rows || fallbackRows);
@@ -300,8 +298,9 @@ function matrixPresetFromSavedForm(
 ): MatrixPreset {
   const data = savedForm.data ?? {};
   const tableFormat = asString(data.tableFormat, fallbackTableFormat);
+  const dynamicTableFormat = asString(data.dynamicTableFormat);
   const matrixData = asString(data.matrixData, "");
-  const parsed = rawToMatrixAuto(matrixData, tableFormat);
+  const parsed = rawToMatrixAuto(matrixData, tableFormat, dynamicTableFormat);
   const createdAt = savedForm.createdAt ?? Date.now() + index;
 
   return {
@@ -332,7 +331,8 @@ function projectFromExternal(external: ExternalProject, index: number): Project 
   );
   const firstMatrix = rawToMatrixAuto(
     asString(firstFormData.matrixData, external.fieldsConfig?.matrixData?.defaultData || ""),
-    fallbackTableFormat
+    fallbackTableFormat,
+    asString(firstFormData.dynamicTableFormat, external.defaultDynamicFormat || "")
   );
 
   const customFieldsByKey = new Map(
@@ -342,7 +342,6 @@ function projectFromExternal(external: ExternalProject, index: number): Project 
     ])
   );
   const fieldKeys = uniqueKeys([
-    ...BUILT_IN_FIELD_ORDER,
     ...Object.keys(external.fieldsConfig ?? {}),
     ...Array.from(customFieldsByKey.keys()),
     ...forms.flatMap((form) => Object.keys(form.data ?? {}))
@@ -402,25 +401,70 @@ function projectFromExternal(external: ExternalProject, index: number): Project 
   };
 }
 
-function projectFromSavedFormsEnvelope(envelope: ExternalSavedFormsEnvelope): Project {
-  const meta = envelope._meta ?? {};
-  return projectFromExternal(
-    {
-      uuid: meta.uuid,
-      id: meta.id,
-      name: meta.projectName || meta.id,
-      environment: meta.environment,
-      fieldsConfig: meta.fieldsConfig,
-      customFields: meta.customFields,
-      defaultTableFormat: meta.defaultTableFormat,
-      defaultDynamicFormat: meta.defaultDynamicFormat,
-      customInputedFormats: meta.customInputedFormats,
-      tableFormatKey: meta.tableFormatKey,
-      isDynamicFormat: meta.isDynamicFormat,
-      listSavedForm: envelope.forms
-    },
-    0
+function savedFormProjectId(form: ExternalSavedForm, fallbackId: unknown) {
+  const data = form.data ?? {};
+  return asString(
+    data.serviceId ?? data.projectId ?? data.gameId ?? data.service_id ?? data.project_id ?? form.projectId,
+    fallbackId
   );
+}
+
+function savedFormProjectName(form: ExternalSavedForm, fallbackName: unknown) {
+  const data = form.data ?? {};
+  return asString(data.projectName ?? data.gameName ?? form.projectName, fallbackName);
+}
+
+function scopedFieldsConfig(
+  fieldsConfig: Record<string, ExternalFieldConfig> | undefined,
+  forms: ExternalSavedForm[]
+) {
+  if (!fieldsConfig) return undefined;
+  const formKeys = new Set(forms.flatMap((form) => Object.keys(form.data ?? {})));
+  formKeys.add("serviceId");
+
+  return Object.fromEntries(
+    Object.entries(fieldsConfig).filter(([key]) => key === "serviceId" || formKeys.has(key))
+  );
+}
+
+function scopedCustomFields(customFields: ExternalCustomField[] | undefined, forms: ExternalSavedForm[]) {
+  if (!customFields) return undefined;
+  const formKeys = new Set(forms.flatMap((form) => Object.keys(form.data ?? {})));
+  return customFields.filter((field, index) =>
+    formKeys.has(asString(field.name, `custom_${index + 1}`))
+  );
+}
+
+function projectsFromSavedFormsEnvelope(envelope: ExternalSavedFormsEnvelope): Project[] {
+  const meta = envelope._meta ?? {};
+  const fallbackId = meta.id || DEFAULT_SERVICE_ID;
+  const groupedForms = new Map<string, ExternalSavedForm[]>();
+
+  for (const form of envelope.forms ?? []) {
+    const projectId = savedFormProjectId(form, fallbackId);
+    groupedForms.set(projectId, [...(groupedForms.get(projectId) ?? []), form]);
+  }
+
+  return Array.from(groupedForms.entries()).map(([projectId, forms], index) => {
+    const firstForm = forms[0];
+    return projectFromExternal(
+      {
+        uuid: index === 0 ? meta.uuid : undefined,
+        id: projectId,
+        name: savedFormProjectName(firstForm, meta.projectName || projectId),
+        environment: firstForm?.environment || meta.environment,
+        fieldsConfig: scopedFieldsConfig(meta.fieldsConfig, forms),
+        customFields: scopedCustomFields(meta.customFields, forms),
+        defaultTableFormat: meta.defaultTableFormat,
+        defaultDynamicFormat: meta.defaultDynamicFormat,
+        customInputedFormats: meta.customInputedFormats,
+        tableFormatKey: meta.tableFormatKey,
+        isDynamicFormat: meta.isDynamicFormat,
+        listSavedForm: forms
+      },
+      index
+    );
+  });
 }
 
 function isProject(value: unknown): value is Project {
@@ -440,7 +484,7 @@ export function importProjectsFromJson(value: unknown): Project[] {
 
     const savedFormsEnvelope = value as ExternalSavedFormsEnvelope;
     if (Array.isArray(savedFormsEnvelope.forms)) {
-      return [normalizeImportedProject(projectFromSavedFormsEnvelope(savedFormsEnvelope), 0)];
+      return projectsFromSavedFormsEnvelope(savedFormsEnvelope).map(normalizeImportedProject);
     }
   }
 
@@ -514,13 +558,14 @@ function projectToExternal(project: Project): ExternalProject {
     defaultDynamicFormat: "1111,1111,1111,1111,1111",
     listSavedForm: project.presets.map((preset) => {
       const tableFormat = asString(preset.formValues?.tableFormat, "4,4,4,4,4");
+      const dynamicTableFormat = asString(preset.formValues?.dynamicTableFormat);
       return {
         id: preset.id,
         name: preset.name,
         data: {
           ...preset.formValues,
           serviceId,
-          matrixData: matrixToRaw(preset.cells, tableFormat),
+          matrixData: matrixToRaw(preset.cells, tableFormat, dynamicTableFormat),
           tableFormat
         },
         tableType: preset.tableType || preset.scenario || "normal",

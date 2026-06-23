@@ -245,6 +245,23 @@ function withProjectServiceId(project: Project, serviceId: string): Project {
   };
 }
 
+function withUniqueProjectId(project: Project, existingProjectIds: Set<string>, index: number): Project {
+  const projectId = project.projectId || `project-import-${Date.now()}-${index}`;
+  if (!existingProjectIds.has(projectId)) {
+    existingProjectIds.add(projectId);
+    return project;
+  }
+
+  const uniqueProjectId = `${projectId}-import-${Date.now()}-${index}`;
+  existingProjectIds.add(uniqueProjectId);
+  return {
+    ...project,
+    projectId: uniqueProjectId,
+    uuid: createUuid(),
+    updatedAt: Date.now()
+  };
+}
+
 function valuesWithMatrix(
   formValues: Record<string, unknown>,
   matrix: string[][],
@@ -254,9 +271,22 @@ function valuesWithMatrix(
   const tableFormat = String(formValues.tableFormat || tableFormatFromMatrix(rows, cols));
   return {
     ...formValues,
-    matrixData: matrixToRaw(matrix, tableFormat),
+    matrixData: matrixToRaw(matrix, tableFormat, String(formValues.dynamicTableFormat || "")),
     tableFormat
   };
+}
+
+function rawMatrixFromValues(
+  matrix: string[][],
+  rows: number,
+  cols: number,
+  formValues: Record<string, unknown>
+) {
+  return matrixToRaw(
+    matrix,
+    String(formValues.tableFormat || tableFormatFromMatrix(rows, cols)),
+    String(formValues.dynamicTableFormat || "")
+  );
 }
 
 function syncActivePreset(
@@ -294,6 +324,40 @@ function nextUserIdHistory(history: string[] = [], userId: unknown) {
   const value = String(userId ?? "").trim();
   if (!value) return history;
   return [value, ...history.filter((item) => item !== value)].slice(0, 20);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function keysFromRecord(value: unknown) {
+  return isRecord(value) ? Object.keys(value) : [];
+}
+
+function sanitizeImportedProjectFields(project: Project): Project {
+  if (!project.savedForms?.length) return project;
+
+  const fieldKeys = new Set<string>(["serviceId"]);
+  for (const preset of project.presets ?? []) {
+    keysFromRecord(preset.formValues).forEach((key) => fieldKeys.add(key));
+  }
+  for (const form of project.savedForms) {
+    keysFromRecord(form.data).forEach((key) => fieldKeys.add(key));
+  }
+
+  const fieldConfigs = (project.fieldConfigs ?? []).filter((field) => fieldKeys.has(field.key));
+  return fieldConfigs.length === project.fieldConfigs.length ? project : { ...project, fieldConfigs };
+}
+
+function migratePersistedState(persistedState: unknown): Partial<StudioState> {
+  if (!isRecord(persistedState)) return {};
+  const state = persistedState as Partial<StudioState>;
+  return {
+    ...state,
+    projects: Array.isArray(state.projects)
+      ? state.projects.map(sanitizeImportedProjectFields)
+      : state.projects
+  };
 }
 
 export const useStudioStore = create<StudioState>()(
@@ -345,14 +409,13 @@ export const useStudioStore = create<StudioState>()(
         const matrix = preset?.cells ?? project.defaultMatrix;
         const rows = preset?.rows ?? matrix.length;
         const cols = preset?.cols ?? matrix[0]?.length ?? 5;
-        const tableFormat = String(formValues.tableFormat || tableFormatFromMatrix(rows, cols));
         set({
           activeProjectId: projectId,
           activePresetId: preset?.id ?? "",
           rows,
           cols,
           matrix,
-          rawMatrix: matrixToRaw(matrix, tableFormat),
+          rawMatrix: rawMatrixFromValues(matrix, rows, cols, formValues),
           formValues,
           apiRequest: {
             ...get().apiRequest,
@@ -445,7 +508,6 @@ export const useStudioStore = create<StudioState>()(
           const matrix = preset?.cells ?? copy.defaultMatrix;
           const rows = preset?.rows ?? matrix.length;
           const cols = preset?.cols ?? matrix[0]?.length ?? 5;
-          const tableFormat = String(formValues.tableFormat || tableFormatFromMatrix(rows, cols));
           return {
             projects: [copy, ...state.projects],
             activeProjectId: copy.projectId,
@@ -453,7 +515,7 @@ export const useStudioStore = create<StudioState>()(
             rows,
             cols,
             matrix,
-            rawMatrix: matrixToRaw(matrix, tableFormat),
+            rawMatrix: rawMatrixFromValues(matrix, rows, cols, formValues),
             formValues,
             apiRequest: {
               ...state.apiRequest,
@@ -477,42 +539,47 @@ export const useStudioStore = create<StudioState>()(
           };
         }),
       importProjects: (projects) => {
-        const nextProjects = projects.length
-          ? projects.map((project) => withProjectServiceId(project, projectServiceId(project)))
-          : [starterProject];
-        const firstProject = nextProjects[0] ?? starterProject;
-        const firstPreset = firstProject.presets[0];
-        const serviceId = projectServiceId(firstProject);
-        const formValues = firstPreset?.formValues
-          ? { ...valuesFromFields(firstProject.fieldConfigs), ...firstPreset.formValues }
-          : valuesFromFields(firstProject.fieldConfigs);
-        formValues.serviceId = serviceId;
-        const matrix = firstPreset?.cells ?? firstProject.defaultMatrix;
-        const rows = firstPreset?.rows ?? matrix.length;
-        const cols = firstPreset?.cols ?? matrix[0]?.length ?? 5;
-        const tableFormat = String(formValues.tableFormat || tableFormatFromMatrix(rows, cols));
-        set({
-          projects: nextProjects,
-          activeProjectId: firstProject.projectId,
-          activePresetId: firstPreset?.id ?? "",
-          rows,
-          cols,
-          matrix,
-          rawMatrix: matrixToRaw(matrix, tableFormat),
-          formValues,
-          apiRequest: {
-            ...get().apiRequest,
-            endpoint: endpointForServiceId(firstProject.endpoint, serviceId),
-            token: firstProject.token,
-            headers: [
-              {
-                id: "h-content",
-                key: "Content-Type",
-                value: "application/x-www-form-urlencoded;charset=UTF-8",
-                enabled: true
-              }
-            ]
-          }
+        if (!projects.length) return;
+
+        set((state) => {
+          const existingProjectIds = new Set(state.projects.map((project) => project.projectId));
+          const importedProjects = projects
+            .map((project) => withProjectServiceId(project, projectServiceId(project)))
+            .map((project, index) => withUniqueProjectId(project, existingProjectIds, index));
+          const firstProject = importedProjects[0];
+          const firstPreset = firstProject.presets[0];
+          const serviceId = projectServiceId(firstProject);
+          const formValues = firstPreset?.formValues
+            ? { ...valuesFromFields(firstProject.fieldConfigs), ...firstPreset.formValues }
+            : valuesFromFields(firstProject.fieldConfigs);
+          formValues.serviceId = serviceId;
+          const matrix = firstPreset?.cells ?? firstProject.defaultMatrix;
+          const rows = firstPreset?.rows ?? matrix.length;
+          const cols = firstPreset?.cols ?? matrix[0]?.length ?? 5;
+
+          return {
+            projects: [...importedProjects, ...state.projects],
+            activeProjectId: firstProject.projectId,
+            activePresetId: firstPreset?.id ?? "",
+            rows,
+            cols,
+            matrix,
+            rawMatrix: rawMatrixFromValues(matrix, rows, cols, formValues),
+            formValues,
+            apiRequest: {
+              ...state.apiRequest,
+              endpoint: endpointForServiceId(firstProject.endpoint, serviceId),
+              token: firstProject.token,
+              headers: [
+                {
+                  id: "h-content",
+                  key: "Content-Type",
+                  value: "application/x-www-form-urlencoded;charset=UTF-8",
+                  enabled: true
+                }
+              ]
+            }
+          };
         });
       },
       setMatrixSize: (rows, cols) => {
@@ -528,7 +595,7 @@ export const useStudioStore = create<StudioState>()(
             rows,
             cols,
             matrix: next,
-            rawMatrix: matrixToRaw(next, String(formValues.tableFormat)),
+            rawMatrix: rawMatrixFromValues(next, rows, cols, formValues),
             formValues,
             undoStack: [state.matrix, ...state.undoStack].slice(0, 30),
             redoStack: []
@@ -545,10 +612,7 @@ export const useStudioStore = create<StudioState>()(
           return {
             projects: syncActivePreset(state, next, state.rows, state.cols, state.formValues),
             matrix: next,
-            rawMatrix: matrixToRaw(
-              next,
-              String(state.formValues.tableFormat || tableFormatFromMatrix(state.rows, state.cols))
-            ),
+            rawMatrix: rawMatrixFromValues(next, state.rows, state.cols, state.formValues),
             undoStack: [state.matrix, ...state.undoStack].slice(0, 30),
             redoStack: []
           };
@@ -561,20 +625,22 @@ export const useStudioStore = create<StudioState>()(
           const tableFormat = String(
             state.formValues.tableFormat || tableFormatFromMatrix(state.rows, state.cols)
           );
-          const next = rawToMatrixAuto(raw, tableFormat);
+          const dynamicTableFormat = String(state.formValues.dynamicTableFormat || "");
+          const next = rawToMatrixAuto(raw, tableFormat, dynamicTableFormat);
           return {
             projects: syncActivePreset(state, next.matrix, next.rows, next.cols, state.formValues),
             rows: next.rows,
             cols: next.cols,
             matrix: next.matrix,
-            rawMatrix: matrixToRaw(next.matrix, tableFormat),
+            rawMatrix: matrixToRaw(next.matrix, tableFormat, dynamicTableFormat),
             undoStack: [state.matrix, ...state.undoStack].slice(0, 30),
             redoStack: []
           };
         }),
       setTableFormatAndApply: (tableFormat) =>
         set((state) => {
-          const next = rawToMatrixAuto(state.rawMatrix, tableFormat);
+          const dynamicTableFormat = String(state.formValues.dynamicTableFormat || "");
+          const next = rawToMatrixAuto(state.rawMatrix, tableFormat, dynamicTableFormat);
           const formValues = {
             ...state.formValues,
             tableFormat,
@@ -585,7 +651,7 @@ export const useStudioStore = create<StudioState>()(
             rows: next.rows,
             cols: next.cols,
             matrix: next.matrix,
-            rawMatrix: matrixToRaw(next.matrix, tableFormat),
+            rawMatrix: matrixToRaw(next.matrix, tableFormat, dynamicTableFormat),
             formValues,
             undoStack: [state.matrix, ...state.undoStack].slice(0, 30),
             redoStack: []
@@ -597,7 +663,7 @@ export const useStudioStore = create<StudioState>()(
           return {
             projects: syncActivePreset(state, next, state.rows, state.cols, state.formValues),
             matrix: next,
-            rawMatrix: matrixToRaw(next),
+            rawMatrix: rawMatrixFromValues(next, state.rows, state.cols, state.formValues),
             undoStack: [state.matrix, ...state.undoStack].slice(0, 30),
             redoStack: []
           };
@@ -622,7 +688,7 @@ export const useStudioStore = create<StudioState>()(
           return {
             projects: syncActivePreset(state, next, state.rows, state.cols, state.formValues),
             matrix: next,
-            rawMatrix: matrixToRaw(next),
+            rawMatrix: rawMatrixFromValues(next, state.rows, state.cols, state.formValues),
             undoStack: [state.matrix, ...state.undoStack].slice(0, 30),
             redoStack: []
           };
@@ -634,7 +700,7 @@ export const useStudioStore = create<StudioState>()(
           return {
             projects: syncActivePreset(state, next, state.rows, state.cols, state.formValues),
             matrix: next,
-            rawMatrix: matrixToRaw(next),
+            rawMatrix: rawMatrixFromValues(next, state.rows, state.cols, state.formValues),
             undoStack: [state.matrix, ...state.undoStack].slice(0, 30),
             redoStack: []
           };
@@ -652,7 +718,7 @@ export const useStudioStore = create<StudioState>()(
           return {
             projects: syncActivePreset(state, previous, state.rows, state.cols, state.formValues),
             matrix: previous,
-            rawMatrix: matrixToRaw(previous),
+            rawMatrix: rawMatrixFromValues(previous, state.rows, state.cols, state.formValues),
             undoStack: state.undoStack.slice(1),
             redoStack: [state.matrix, ...state.redoStack].slice(0, 30)
           };
@@ -664,7 +730,7 @@ export const useStudioStore = create<StudioState>()(
           return {
             projects: syncActivePreset(state, next, state.rows, state.cols, state.formValues),
             matrix: next,
-            rawMatrix: matrixToRaw(next),
+            rawMatrix: rawMatrixFromValues(next, state.rows, state.cols, state.formValues),
             redoStack: state.redoStack.slice(1),
             undoStack: [state.matrix, ...state.undoStack].slice(0, 30)
           };
@@ -770,13 +836,12 @@ export const useStudioStore = create<StudioState>()(
         const serviceId = projectServiceId(project);
         const nextFormValues = { ...valuesFromFields(project.fieldConfigs), ...preset.formValues };
         nextFormValues.serviceId = serviceId;
-        const tableFormat = String(nextFormValues.tableFormat || tableFormatFromMatrix(preset.rows, preset.cols));
         set((state) => ({
           activePresetId: presetId,
           rows: preset.rows,
           cols: preset.cols,
           matrix: preset.cells,
-          rawMatrix: matrixToRaw(preset.cells, tableFormat),
+          rawMatrix: rawMatrixFromValues(preset.cells, preset.rows, preset.cols, nextFormValues),
           formValues: nextFormValues,
           userIdHistory: nextUserIdHistory(state.userIdHistory, nextFormValues.userId),
           undoStack: [state.matrix, ...state.undoStack].slice(0, 30),
@@ -812,13 +877,12 @@ export const useStudioStore = create<StudioState>()(
           const rows = nextPreset?.rows ?? state.rows;
           const cols = nextPreset?.cols ?? state.cols;
           const matrix = nextPreset?.cells ?? state.matrix;
-          const tableFormat = String(formValues.tableFormat || tableFormatFromMatrix(rows, cols));
           return {
             activePresetId: nextActivePresetId,
             rows,
             cols,
             matrix,
-            rawMatrix: matrixToRaw(matrix, tableFormat),
+            rawMatrix: rawMatrixFromValues(matrix, rows, cols, formValues),
             formValues,
             projects: state.projects.map((item) =>
               item.projectId === state.activeProjectId
@@ -1049,11 +1113,12 @@ export const useStudioStore = create<StudioState>()(
       replayLog: (logId) => {
         const log = get().requestLogs.find((item) => item.id === logId);
         if (!log) return;
+        const state = get();
         set({
           matrix: log.matrix,
-          rawMatrix: matrixToRaw(log.matrix),
+          rawMatrix: rawMatrixFromValues(log.matrix, state.rows, state.cols, state.formValues),
           apiRequest: {
-            ...get().apiRequest,
+            ...state.apiRequest,
             method: log.method
           }
         });
@@ -1061,8 +1126,8 @@ export const useStudioStore = create<StudioState>()(
     }),
     {
       name: "slot-matrix-studio",
-      version: 4,
-      migrate: () => ({}) as Partial<StudioState>
+      version: 5,
+      migrate: migratePersistedState
     }
   )
 );

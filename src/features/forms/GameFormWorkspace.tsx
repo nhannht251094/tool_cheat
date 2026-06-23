@@ -12,8 +12,13 @@ import {
   Trash2,
   Zap
 } from "lucide-react";
-import { useState, type KeyboardEvent } from "react";
-import { parseTableFormat } from "../../lib/matrix";
+import { useState, type CSSProperties, type KeyboardEvent } from "react";
+import {
+  matrixTokenPositions,
+  parseDynamicTableFormat,
+  parseIndexList,
+  parseTableFormat
+} from "../../lib/matrix";
 import { buildSlotFormPayload, tableFormatFromMatrix } from "../../lib/slotPayload";
 import { notify } from "../../lib/uiEvents";
 import { useStudioStore } from "../../store/useStudioStore";
@@ -59,6 +64,25 @@ export function GameFormWorkspace() {
   const tableFormatValue = String(formValues.tableFormat || tableFormatFromMatrix(rows, cols));
   const visibleReels = parseTableFormat(tableFormatValue);
   const reelHeights = visibleReels.length ? visibleReels : parseTableFormat(tableFormatFromMatrix(rows, cols));
+  const dynamicTableFormatValue = String(formValues.dynamicTableFormat || "");
+  const dynamicReelSpans = parseDynamicTableFormat(dynamicTableFormatValue, reelHeights);
+  const tokenPositions = matrixTokenPositions(tableFormatValue, dynamicTableFormatValue);
+  const horizontalReelEnabled = Boolean(formValues.horizontalReelEnabled);
+  const horizontalReelIndexesValue = String(formValues.horizontalReelIndexes || "");
+  const horizontalReelIndexes = parseIndexList(horizontalReelIndexesValue);
+  const horizontalReelCells = horizontalReelIndexes.map((tokenIndex) => ({
+    tokenIndex,
+    position: tokenPositions[tokenIndex]
+  }));
+  const reelLayouts = dynamicReelSpans.map((spans) => {
+    let startRow = 0;
+    return spans.map((height) => {
+      const block = { startRow, height };
+      startRow += height;
+      return block;
+    });
+  });
+  const hasMegaSymbols = dynamicReelSpans.some((spans) => spans.some((span) => span > 1));
   const totalCells = reelHeights.reduce((sum, height) => sum + height, 0);
   const uniqueSymbols = new Set(matrix.flat().filter(Boolean)).size;
   const userIds = Array.from(
@@ -83,9 +107,11 @@ export function GameFormWorkspace() {
     return value.trim().replace(/\s+/g, "_").replace(/[^\w]/g, "");
   }
 
-  function focusMatrixCell(rowIndex: number, colIndex: number) {
+  function focusMatrixBlock(colIndex: number, blockIndex: number) {
     const nextCol = Math.max(0, Math.min(reelHeights.length - 1, colIndex));
-    const nextRow = Math.max(0, Math.min((reelHeights[nextCol] || 1) - 1, rowIndex));
+    const nextBlocks = reelLayouts[nextCol] ?? [{ startRow: 0, height: 1 }];
+    const nextBlock = Math.max(0, Math.min(nextBlocks.length - 1, blockIndex));
+    const nextRow = nextBlocks[nextBlock]?.startRow ?? 0;
     window.requestAnimationFrame(() => {
       const input = document.querySelector<HTMLInputElement>(
         `[data-matrix-cell="${nextRow}-${nextCol}"]`
@@ -97,31 +123,37 @@ export function GameFormWorkspace() {
 
   function handleMatrixKeyDown(
     event: KeyboardEvent<HTMLInputElement>,
-    rowIndex: number,
-    colIndex: number
+    colIndex: number,
+    blockIndex: number
   ) {
     if (event.key === "Enter") {
       event.preventDefault();
-      focusMatrixCell(rowIndex + 1, colIndex);
+      focusMatrixBlock(colIndex, blockIndex + 1);
     }
     if (event.key === "ArrowUp") {
       event.preventDefault();
-      focusMatrixCell(rowIndex - 1, colIndex);
+      focusMatrixBlock(colIndex, blockIndex - 1);
     }
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      focusMatrixCell(rowIndex + 1, colIndex);
+      focusMatrixBlock(colIndex, blockIndex + 1);
     }
     if (event.key === "ArrowLeft" && event.currentTarget.selectionStart === 0) {
       event.preventDefault();
-      focusMatrixCell(rowIndex, colIndex - 1);
+      focusMatrixBlock(colIndex - 1, blockIndex);
     }
     if (
       event.key === "ArrowRight" &&
       event.currentTarget.selectionStart === event.currentTarget.value.length
     ) {
       event.preventDefault();
-      focusMatrixCell(rowIndex, colIndex + 1);
+      focusMatrixBlock(colIndex + 1, blockIndex);
+    }
+  }
+
+  function updateMatrixBlock(row: number, col: number, span: number, value: string) {
+    for (let offset = 0; offset < span; offset += 1) {
+      setCell(row + offset, col, value);
     }
   }
 
@@ -283,6 +315,34 @@ export function GameFormWorkspace() {
                 />
                 <small>Controls visible reel cells. Example: 3,5,3,3,4</small>
               </label>
+              {project?.fieldConfigs.some((field) => field.key === "dynamicTableFormat") && (
+                <label className="table-format-field">
+                  Dynamic Format
+                  <input
+                    value={dynamicTableFormatValue}
+                    onChange={(event) => updateFormValue("dynamicTableFormat", event.target.value)}
+                  />
+                  <small>Digit spans per reel. Example: 11111,32,221,113,1112,1112</small>
+                </label>
+              )}
+              <label className="horizontal-reel-toggle">
+                <input
+                  type="checkbox"
+                  checked={horizontalReelEnabled}
+                  onChange={(event) => updateFormValue("horizontalReelEnabled", event.target.checked)}
+                />
+                <span />
+                Horizontal Reel
+              </label>
+              <label className="table-format-field">
+                Horizontal Indexes
+                <input
+                  value={horizontalReelIndexesValue}
+                  disabled={!horizontalReelEnabled}
+                  placeholder="0,1,5,9"
+                  onChange={(event) => updateFormValue("horizontalReelIndexes", event.target.value)}
+                />
+              </label>
             </div>
           </section>
 
@@ -304,11 +364,42 @@ export function GameFormWorkspace() {
           <section className="workbench-section">
             <div className="workbench-section-head">
               <h3>Reel Editor</h3>
-              <span>Focusable slot-reel grid</span>
+              <span>{hasMegaSymbols ? "Mega symbol reel grid" : "Focusable slot-reel grid"}</span>
             </div>
             <div className="matrix-row-layout">
-              <div className="compact-matrix-grid reel-grid">
-                {visibleReels.map((reelHeight, colIndex) => (
+              <div className="reel-editor-stack">
+                {horizontalReelEnabled && (
+                  <div className="horizontal-reel-row" style={{ "--horizontal-reel-count": Math.max(horizontalReelCells.length, 1) } as CSSProperties}>
+                    <div className="horizontal-reel-head">
+                      <strong>HR</strong>
+                      <span>{horizontalReelCells.length}</span>
+                    </div>
+                    <div className="horizontal-reel-cells">
+                      {horizontalReelCells.map(({ tokenIndex, position }, itemIndex) => (
+                        <input
+                          key={`${tokenIndex}-${itemIndex}`}
+                          className={position ? "horizontal-reel-cell" : "horizontal-reel-cell is-missing"}
+                          aria-label={`Horizontal reel index ${tokenIndex}`}
+                          spellCheck={false}
+                          disabled={!position}
+                          value={position ? matrix[position.row]?.[position.col] || "C3" : ""}
+                          onChange={(event) => {
+                            if (!position) return;
+                            updateMatrixBlock(position.row, position.col, position.span, event.target.value || "C3");
+                          }}
+                          onFocus={(event) => {
+                            if (position) setSelectedCell(position.row, position.col);
+                            event.currentTarget.select();
+                          }}
+                          onClick={(event) => event.currentTarget.select()}
+                        />
+                      ))}
+                      {!horizontalReelCells.length && <span className="horizontal-reel-empty">No indexes</span>}
+                    </div>
+                  </div>
+                )}
+                <div className={hasMegaSymbols ? "compact-matrix-grid reel-grid has-mega-symbols" : "compact-matrix-grid reel-grid"}>
+                  {reelHeights.map((reelHeight, colIndex) => (
                   <div
                     className={selectedCell.col === colIndex ? "reel-column is-focused" : "reel-column"}
                     key={`${colIndex}-${reelHeight}`}
@@ -317,25 +408,32 @@ export function GameFormWorkspace() {
                       <strong>R{colIndex + 1}</strong>
                       <span>{reelHeight}</span>
                     </div>
-                    {Array.from({ length: reelHeight }, (_, rowIndex) => (
+                    {reelLayouts[colIndex]?.map((block, blockIndex) => (
                       <input
-                        key={`${rowIndex}-${colIndex}`}
-                        className={selectedCell.row === rowIndex && selectedCell.col === colIndex ? "is-active-cell" : ""}
-                        data-matrix-cell={`${rowIndex}-${colIndex}`}
-                        aria-label={`Reel ${colIndex + 1} row ${rowIndex + 1}`}
+                        key={`${block.startRow}-${colIndex}-${block.height}`}
+                        className={[
+                          selectedCell.row === block.startRow && selectedCell.col === colIndex ? "is-active-cell" : "",
+                          block.height > 1 ? "mega-symbol-cell" : ""
+                        ].filter(Boolean).join(" ")}
+                        style={{ "--symbol-span": block.height } as CSSProperties}
+                        data-matrix-cell={`${block.startRow}-${colIndex}`}
+                        aria-label={`Reel ${colIndex + 1} row ${block.startRow + 1} span ${block.height}`}
                         spellCheck={false}
-                        value={matrix[rowIndex]?.[colIndex] || "C3"}
-                        onChange={(event) => setCell(rowIndex, colIndex, event.target.value || "C3")}
+                        value={matrix[block.startRow]?.[colIndex] || "C3"}
+                        onChange={(event) => {
+                          updateMatrixBlock(block.startRow, colIndex, block.height, event.target.value || "C3");
+                        }}
                         onFocus={(event) => {
-                          setSelectedCell(rowIndex, colIndex);
+                          setSelectedCell(block.startRow, colIndex);
                           event.currentTarget.select();
                         }}
                         onClick={(event) => event.currentTarget.select()}
-                        onKeyDown={(event) => handleMatrixKeyDown(event, rowIndex, colIndex)}
+                        onKeyDown={(event) => handleMatrixKeyDown(event, colIndex, blockIndex)}
                       />
                     ))}
                   </div>
-                ))}
+                  ))}
+                </div>
               </div>
 
               <aside className="matrix-tools-card">

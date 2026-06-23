@@ -19,9 +19,58 @@ export function parseTableFormat(tableFormat: string) {
     .filter((value) => Number.isFinite(value) && value > 0);
 }
 
-export function matrixToRaw(matrix: string[][], tableFormat?: string) {
+export function parseDynamicTableFormat(dynamicTableFormat: string, reelHeights: number[]) {
+  const reels = dynamicTableFormat
+    .split(/[\s,;|]+/)
+    .map((reel) =>
+      reel
+        .trim()
+        .split("")
+        .map((value) => Number(value))
+        .filter((value) => Number.isFinite(value) && value > 0)
+    );
+
+  return reelHeights.map((reelHeight, reelIndex) => {
+    const spans = reels[reelIndex] ?? [];
+    const totalHeight = spans.reduce((sum, span) => sum + span, 0);
+    if (!spans.length || totalHeight !== reelHeight) {
+      return Array.from({ length: reelHeight }, () => 1);
+    }
+    return spans;
+  });
+}
+
+export function parseIndexList(value: string) {
+  return value
+    .split(/[\s,;|]+/)
+    .map((item) => Number(item.trim()))
+    .filter((item) => Number.isInteger(item) && item >= 0);
+}
+
+export function matrixTokenPositions(tableFormat: string, dynamicTableFormat?: string) {
+  const format = parseTableFormat(tableFormat);
+  const rows = Math.max(...format, 1);
+  const cols = Math.max(format.length, 1);
+  const dynamicSpans = dynamicTableFormat ? parseDynamicTableFormat(dynamicTableFormat, format) : [];
+  const positions: Array<{ row: number; col: number; span: number }> = [];
+
+  for (let col = 0; col < cols; col += 1) {
+    const reelHeight = format[col] ?? rows;
+    const spans = dynamicSpans[col] ?? Array.from({ length: reelHeight }, () => 1);
+    let row = 0;
+    for (const span of spans) {
+      positions.push({ row, col, span });
+      row += span;
+    }
+  }
+
+  return positions;
+}
+
+export function matrixToRaw(matrix: string[][], tableFormat?: string, dynamicTableFormat?: string) {
   const format = tableFormat ? parseTableFormat(tableFormat) : [];
   if (!format.length) return matrix.flat().join(",");
+  const dynamicSpans = dynamicTableFormat ? parseDynamicTableFormat(dynamicTableFormat, format) : [];
 
   const tokens: string[] = [];
   const rows = matrix.length;
@@ -29,8 +78,11 @@ export function matrixToRaw(matrix: string[][], tableFormat?: string) {
 
   for (let col = 0; col < cols; col += 1) {
     const reelHeight = format[col] ?? rows;
-    for (let row = 0; row < reelHeight; row += 1) {
+    const spans = dynamicSpans[col] ?? Array.from({ length: reelHeight }, () => 1);
+    let row = 0;
+    for (const span of spans) {
       tokens.push(matrix[row]?.[col] || "C3");
+      row += span;
     }
   }
 
@@ -53,10 +105,11 @@ export function rawToMatrix(raw: string, rows: number, cols: number) {
   return next;
 }
 
-export function rawToMatrixAuto(raw: string, tableFormat: string) {
+export function rawToMatrixAuto(raw: string, tableFormat: string, dynamicTableFormat?: string) {
   const format = parseTableFormat(tableFormat);
   const rows = Math.max(...format, 1);
   const cols = Math.max(format.length, 1);
+  const dynamicSpans = dynamicTableFormat ? parseDynamicTableFormat(dynamicTableFormat, format) : [];
   const tokens = raw
     .split(/[\s,;|]+/)
     .map(normalizeSymbol)
@@ -66,8 +119,14 @@ export function rawToMatrixAuto(raw: string, tableFormat: string) {
   let tokenIndex = 0;
   for (let col = 0; col < cols; col += 1) {
     const reelHeight = format[col] ?? rows;
-    for (let row = 0; row < reelHeight; row += 1) {
-      next[row][col] = tokens[tokenIndex] ?? "C3";
+    const spans = dynamicSpans[col] ?? Array.from({ length: reelHeight }, () => 1);
+    let row = 0;
+    for (const span of spans) {
+      const value = tokens[tokenIndex] ?? "C3";
+      for (let offset = 0; offset < span && row + offset < reelHeight; offset += 1) {
+        next[row + offset][col] = value;
+      }
+      row += span;
       tokenIndex += 1;
     }
   }
