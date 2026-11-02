@@ -46,6 +46,7 @@ export type Project = {
   name: string;
   serviceId?: string;
   endpoint: string;
+  tableFormatKey?: string;
   token: string;
   defaultMatrix: string[][];
   fieldConfigs: FieldConfig[];

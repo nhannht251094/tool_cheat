@@ -494,6 +494,7 @@ export const useStudioStore = create<StudioState>()(
           apiRequest: {
             ...get().apiRequest,
             endpoint: endpointForServiceId(project.endpoint, serviceId),
+            environment: environmentFromEndpoint(project.endpoint),
             token: project.token,
             headers: [
               {
@@ -634,6 +635,7 @@ export const useStudioStore = create<StudioState>()(
             apiRequest: {
               ...state.apiRequest,
               endpoint: endpointForServiceId(firstProject.endpoint, serviceId),
+              environment: environmentFromEndpoint(firstProject.endpoint),
               token: firstProject.token,
               headers: [
                 {

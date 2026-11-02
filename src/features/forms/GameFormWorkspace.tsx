@@ -60,7 +60,7 @@ export function GameFormWorkspace() {
   } = useStudioStore();
 
   const project = projects.find((item) => item.projectId === activeProjectId);
-  const payload = buildSlotFormPayload(matrix, rows, cols, formValues);
+  const payload = buildSlotFormPayload(matrix, rows, cols, formValues, project?.tableFormatKey);
   const tableFormatValue = String(formValues.tableFormat || tableFormatFromMatrix(rows, cols));
   const visibleReels = parseTableFormat(tableFormatValue);
   const reelHeights = visibleReels.length ? visibleReels : parseTableFormat(tableFormatFromMatrix(rows, cols));

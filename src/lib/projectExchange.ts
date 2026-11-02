@@ -79,6 +79,16 @@ type ExternalSavedFormsEnvelope = {
   forms?: ExternalSavedForm[];
 };
 
+type SnapshotFormsEnvelope = {
+  project?: Pick<ExternalProject, "id" | "uuid" | "name">;
+  projectSnapshot?: ExternalProject & { userId?: string };
+  forms: Array<ExternalSavedForm & {
+    uuid?: string;
+    formData?: Record<string, unknown>;
+    deletedAt?: number;
+  }>;
+};
+
 const BUILT_IN_FIELD_KEYS = new Set([
   "serviceId",
   "userId",
@@ -392,6 +402,7 @@ function projectFromExternal(external: ExternalProject, index: number): Project 
     uuid: external.uuid || createUuid(),
     name: external.name || projectId,
     endpoint: endpointForProject(projectId, external.environment),
+    tableFormatKey: external.tableFormatKey,
     token: "",
     defaultMatrix: firstMatrix.matrix,
     fieldConfigs,
@@ -471,12 +482,49 @@ function isProject(value: unknown): value is Project {
   return isRecord(value) && typeof value.projectId === "string" && Array.isArray(value.fieldConfigs);
 }
 
+function projectFromSnapshotForms(envelope: SnapshotFormsEnvelope): Project {
+  const snapshot = envelope.projectSnapshot ?? {};
+  const external = { ...envelope.project, ...snapshot };
+  const formatKey = external.tableFormatKey || "tableFormat";
+  const forms = envelope.forms.filter(form => form.deletedAt == null).map(form => {
+    const { matrix, ...data } = form.formData ?? form.data ?? {};
+    const dynamicTableFormat = asString(
+      formatKey !== "tableFormat" ? data[formatKey] : undefined,
+      data.dynamicTableFormat ?? external.defaultDynamicFormat
+    );
+    if (formatKey !== "tableFormat" && formatKey !== "dynamicTableFormat") delete data[formatKey];
+    return {
+      ...form,
+      id: form.uuid || form.id,
+      data: {
+        ...data,
+        serviceId: external.id,
+        userId: data.userId ?? snapshot.userId ?? "",
+        matrixData: data.matrixData ?? matrix ?? "",
+        dynamicTableFormat
+      }
+    };
+  });
+  // Missing optional values belong to this form, not to the first form's defaults.
+  const emptyValues = Object.fromEntries(
+    uniqueKeys(forms.flatMap(form => Object.keys(form.data))).map(key => [key, ""])
+  );
+  return projectFromExternal({
+    ...external,
+    listSavedForm: forms.map(form => ({ ...form, data: { ...emptyValues, ...form.data } }))
+  }, 0);
+}
+
 export function importProjectsFromJson(value: unknown): Project[] {
   if (Array.isArray(value) && value.every(isProject)) {
     return value.map(normalizeImportedProject);
   }
 
   if (isRecord(value)) {
+    if (Array.isArray(value.forms) && (isRecord(value.projectSnapshot) || isRecord(value.project))) {
+      return [normalizeImportedProject(projectFromSnapshotForms(value as SnapshotFormsEnvelope), 0)];
+    }
+
     const envelope = value as ExternalEnvelope;
     if (Array.isArray(envelope.projects)) {
       return envelope.projects.map(projectFromExternal).map(normalizeImportedProject);
@@ -551,7 +599,7 @@ function projectToExternal(project: Project): ExternalProject {
       }
     ],
     isDynamicFormat: false,
-    tableFormatKey: "tableFormat",
+    tableFormatKey: project.tableFormatKey || "tableFormat",
     defaultTableFormat:
       asString(project.fieldConfigs.find((field) => field.key === "tableFormat")?.defaultValue) ||
       "4,4,4,4,4",
