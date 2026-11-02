@@ -13,6 +13,15 @@ Floating toolbar companion for the Slot Matrix tool.
 /Users/fe-trungnhan/ProjectNew/tool-cheat-react/extension
 ```
 
+## Update an existing installation
+
+1. Replace the files in the same unpacked extension folder with the new version.
+2. Open `chrome://extensions` (or `edge://extensions`) and click **Reload** for Slot Matrix Dock.
+3. Refresh both the tool tab and the game tab so they use the new content script.
+4. Reopen the tool's project/form to sync the current payload to the Dock.
+
+Keep the existing extension installed to retain saved sites, Dock position, and user IDs.
+
 ## Where it runs
 
 The dock has no default allowed sites. Add sites manually from the extension popup with

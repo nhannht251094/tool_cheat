@@ -132,9 +132,8 @@ async function getConfig() {
     Object.keys(DEFAULT_CONFIG).map((key) => [key, stored[key]])
   );
   const config = {
-    ...DEFAULT_CONFIG,
-    ...storedDefaults,
-    ...(currentForm?.config || {}),
+    // A synced form is a complete payload. Missing optional fields must stay absent.
+    ...(currentForm?.config || { ...DEFAULT_CONFIG, ...storedDefaults }),
     ...DEFAULT_DOCK_CONFIG,
     dockEnabled: stored.dockEnabled,
     dockAllowedSites: stored.dockAllowedSites
