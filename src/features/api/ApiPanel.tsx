@@ -27,7 +27,7 @@ export function ApiPanel() {
   const activeProject = projects.find((project) => project.projectId === activeProjectId);
   const serviceId = activeProject?.serviceId || formValues.serviceId;
   const endpoint = endpointForEnvironment(serviceId, apiRequest.environment);
-  const payload = buildSlotFormPayload(matrix, rows, cols, formValues);
+  const payload = buildSlotFormPayload(matrix, rows, cols, formValues, activeProject?.tableFormatKey);
   const endpointError = endpoint.trim() ? "" : "Endpoint is required before sending.";
 
   useEffect(() => {

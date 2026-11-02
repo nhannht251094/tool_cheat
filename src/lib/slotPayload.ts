@@ -23,7 +23,8 @@ export function buildSlotFormPayload(
   matrix: string[][],
   rows: number,
   cols: number,
-  formValues: Record<string, unknown>
+  formValues: Record<string, unknown>,
+  tableFormatKey = "tableFormat"
 ): SlotFormPayload {
   const tableFormat = String(formValues.tableFormat || tableFormatFromMatrix(rows, cols));
   const dynamicTableFormat = String(formValues.dynamicTableFormat || "");
@@ -45,6 +46,12 @@ export function buildSlotFormPayload(
     "freegameTableFormat",
     "powerUpSymbolCode"
   ]);
+  if (tableFormatKey !== "tableFormat") {
+    // The editor uses dynamicTableFormat internally; the game may name it differently.
+    reservedKeys.add("dynamicTableFormat");
+    reservedKeys.add(tableFormatKey);
+    if (dynamicTableFormat) payload[tableFormatKey] = dynamicTableFormat;
+  }
   Object.entries(formValues).forEach(([key, value]) => {
     if (reservedKeys.has(key) || value == null || value === "") return;
     payload[key] = String(value);

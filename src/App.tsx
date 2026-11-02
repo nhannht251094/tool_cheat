@@ -18,7 +18,7 @@ function extensionFormFromPreset(project: Project, preset: MatrixPreset) {
     ...valuesFromFields(project.fieldConfigs),
     ...preset.formValues
   };
-  const payload = buildSlotFormPayload(preset.cells, preset.rows, preset.cols, formValues);
+  const payload = buildSlotFormPayload(preset.cells, preset.rows, preset.cols, formValues, project.tableFormatKey);
   return {
     id: preset.id,
     name: preset.name,
@@ -220,7 +220,7 @@ export default function App() {
               bearerToken: apiRequest.token || activeProject.token,
               token: apiRequest.token || activeProject.token,
               currency: String(formValues.currency || "USD"),
-              ...buildSlotFormPayload(matrix, rows, cols, formValues)
+              ...buildSlotFormPayload(matrix, rows, cols, formValues, activeProject.tableFormatKey)
             }
           }
         ];
