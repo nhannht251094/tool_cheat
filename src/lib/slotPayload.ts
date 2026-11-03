@@ -26,6 +26,11 @@ export function buildSlotFormPayload(
   formValues: Record<string, unknown>,
   tableFormatKey = "tableFormat"
 ): SlotFormPayload {
+  // Older saved 9650 projects predate API layout mapping. Resolve at send time
+  // so web requests and synced Dock forms work without reimporting user data.
+  const apiFormatKey = tableFormatKey === "tableFormat" && String(formValues.serviceId) === "9650"
+    ? "matrixLightningData"
+    : tableFormatKey;
   const tableFormat = String(formValues.tableFormat || tableFormatFromMatrix(rows, cols));
   const dynamicTableFormat = String(formValues.dynamicTableFormat || "");
   const matrixData = matrixToRaw(matrix, tableFormat, dynamicTableFormat);
@@ -46,11 +51,11 @@ export function buildSlotFormPayload(
     "freegameTableFormat",
     "powerUpSymbolCode"
   ]);
-  if (tableFormatKey !== "tableFormat") {
+  if (apiFormatKey !== "tableFormat") {
     // The editor uses dynamicTableFormat internally; the game may name it differently.
     reservedKeys.add("dynamicTableFormat");
-    reservedKeys.add(tableFormatKey);
-    if (dynamicTableFormat) payload[tableFormatKey] = dynamicTableFormat;
+    reservedKeys.add(apiFormatKey);
+    if (dynamicTableFormat) payload[apiFormatKey] = dynamicTableFormat;
   }
   Object.entries(formValues).forEach(([key, value]) => {
     if (reservedKeys.has(key) || value == null || value === "") return;
