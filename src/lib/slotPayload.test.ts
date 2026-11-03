@@ -17,8 +17,25 @@ describe("API mega format mapping", () => {
   });
 
   it("keeps the existing payload contract for projects without a mapping", () => {
-    expect(buildSlotFormPayload(matrix, 4, 2, values)).toMatchObject({
+    expect(buildSlotFormPayload(matrix, 4, 2, { ...values, serviceId: "9703" })).toMatchObject({
       tableFormat: "4,4", dynamicTableFormat: "22,121", matrixLightningData: "1111,1111"
+    });
+  });
+
+  it.each([undefined, "tableFormat"])(
+    "sends the 9650 API layout for an old project with mapping %s",
+    (mapping) => {
+      const payload = buildSlotFormPayload(matrix, 4, 2, values, mapping);
+      expect(payload.matrixLightningData).toBe("22,121");
+      expect(payload.matrixData).toBe("A,3,2,K,4");
+      expect(payload).not.toHaveProperty("dynamicTableFormat");
+    }
+  );
+
+  it("preserves an explicit custom layout mapping", () => {
+    const { matrixLightningData: _stale, ...currentValues } = values;
+    expect(buildSlotFormPayload(matrix, 4, 2, currentValues, "customLayout")).toMatchObject({
+      customLayout: "22,121", matrixData: "A,3,2,K,4"
     });
   });
 });
