@@ -45,7 +45,7 @@ jobs:
 
       - name: Update deploy files
         run: |
-          rsync -a --delete \
+          rsync -a --checksum --delete \
             --exclude .git \
             --exclude .github \
             --exclude CNAME \
