@@ -23,6 +23,7 @@ export function ProjectSidebar() {
     projects,
     activeProjectId,
     projectSearch,
+    apiRequest,
     setProjectSearch,
     setActiveProject,
     createProject,
@@ -46,7 +47,7 @@ export function ProjectSidebar() {
   async function handleImport(file?: File) {
     if (!file) return;
     try {
-      importProjects(await importProjectsFromJsonFile(file));
+      importProjects(await importProjectsFromJsonFile(file, { environment: apiRequest.environment }));
       notify("Project data imported.", "success");
     } catch (error) {
       notify(error instanceof Error ? error.message : "Import failed", "error");

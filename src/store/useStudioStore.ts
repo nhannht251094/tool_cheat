@@ -20,6 +20,7 @@ import {
 } from "../lib/slotPayload";
 import { createUuid } from "../lib/id";
 import {
+  DEFAULT_ENVIRONMENT,
   endpointForEnvironment,
   environmentFromEndpoint,
   normalizeEnvironment
@@ -434,6 +435,41 @@ function migratePersistedState(persistedState: unknown): Partial<StudioState> {
   };
 }
 
+function workspaceForProject(project: Project, apiRequest: ApiRequest): Partial<StudioState> {
+  const preset = project.presets[0];
+  const serviceId = projectServiceId(project);
+  const formValues = preset?.formValues
+    ? { ...valuesFromFields(project.fieldConfigs), ...preset.formValues }
+    : valuesFromFields(project.fieldConfigs);
+  formValues.serviceId = serviceId;
+  const matrix = preset?.cells ?? project.defaultMatrix;
+  const rows = preset?.rows ?? matrix.length;
+  const cols = preset?.cols ?? matrix[0]?.length ?? 5;
+  return {
+    activeProjectId: project.projectId,
+    activePresetId: preset?.id ?? "",
+    rows,
+    cols,
+    matrix,
+    rawMatrix: rawMatrixFromValues(matrix, rows, cols, formValues),
+    formValues,
+    apiRequest: {
+      ...apiRequest,
+      endpoint: endpointForServiceId(project.endpoint, serviceId),
+      environment: environmentFromEndpoint(project.endpoint),
+      token: project.token,
+      headers: [
+        {
+          id: "h-content",
+          key: "Content-Type",
+          value: "application/x-www-form-urlencoded;charset=UTF-8",
+          enabled: true
+        }
+      ]
+    }
+  };
+}
+
 export const useStudioStore = create<StudioState>()(
   persist(
     (set, get) => ({
@@ -456,7 +492,7 @@ export const useStudioStore = create<StudioState>()(
         token: starterProject.token,
         autoSend: false,
         websocket: false,
-        environment: "DEV",
+        environment: DEFAULT_ENVIRONMENT,
         headers: [
           {
             id: "h-content",
@@ -474,38 +510,7 @@ export const useStudioStore = create<StudioState>()(
       setActiveProject: (projectId) => {
         const project = get().projects.find((item) => item.projectId === projectId);
         if (!project) return;
-        const preset = project.presets[0];
-        const serviceId = projectServiceId(project);
-        const formValues = preset?.formValues
-          ? { ...valuesFromFields(project.fieldConfigs), ...preset.formValues }
-          : valuesFromFields(project.fieldConfigs);
-        formValues.serviceId = serviceId;
-        const matrix = preset?.cells ?? project.defaultMatrix;
-        const rows = preset?.rows ?? matrix.length;
-        const cols = preset?.cols ?? matrix[0]?.length ?? 5;
-        set({
-          activeProjectId: projectId,
-          activePresetId: preset?.id ?? "",
-          rows,
-          cols,
-          matrix,
-          rawMatrix: rawMatrixFromValues(matrix, rows, cols, formValues),
-          formValues,
-          apiRequest: {
-            ...get().apiRequest,
-            endpoint: endpointForServiceId(project.endpoint, serviceId),
-            environment: environmentFromEndpoint(project.endpoint),
-            token: project.token,
-            headers: [
-              {
-                id: "h-content",
-                key: "Content-Type",
-                value: "application/x-www-form-urlencoded;charset=UTF-8",
-                enabled: true
-              }
-            ]
-          }
-        });
+        set(workspaceForProject(project, get().apiRequest));
       },
       createProject: () =>
         set((state) => {
@@ -525,6 +530,7 @@ export const useStudioStore = create<StudioState>()(
             apiRequest: {
               ...state.apiRequest,
               endpoint: project.endpoint,
+              environment: environmentFromEndpoint(project.endpoint),
               token: project.token
             }
           };
@@ -594,15 +600,9 @@ export const useStudioStore = create<StudioState>()(
         set((state) => {
           if (state.projects.length === 1) return state;
           const projects = state.projects.filter((project) => project.projectId !== projectId);
-          return {
-            projects,
-            activeProjectId:
-              state.activeProjectId === projectId ? projects[0].projectId : state.activeProjectId,
-            activePresetId:
-              state.activeProjectId === projectId
-                ? projects[0].presets[0]?.id ?? ""
-                : state.activePresetId
-          };
+          return state.activeProjectId === projectId
+            ? { projects, ...workspaceForProject(projects[0], state.apiRequest) }
+            : { projects };
         }),
       importProjects: (projects) => {
         if (!projects.length) return;
