@@ -110,3 +110,70 @@ describe("snapshot forms import", () => {
     expect(project.presets[0].cells).toEqual([["A", "2"], ["K", "3"]]);
   });
 });
+
+describe("imported field ownership", () => {
+  it("keeps two projects of the same game separate in a saved-forms export", () => {
+    const projects = importProjectsFromJson({
+      _meta: {
+        id: "9650",
+        customFields: [{ name: "onlyA", label: "A setting" }, { name: "onlyB", label: "B setting" }]
+      },
+      forms: [
+        { id: "a", projectId: "project-a", projectName: "Project A", data: { serviceId: "9650", matrixData: "A", tableFormat: "1", onlyA: "a-value" } },
+        { id: "b", projectId: "project-b", projectName: "Project B", data: { serviceId: "9650", matrixData: "K", tableFormat: "1", onlyB: "b-value" } }
+      ]
+    });
+    expect(projects).toHaveLength(2);
+    expect(projects.map(project => project.serviceId)).toEqual(["9650", "9650"]);
+    expect(projects.map(project => project.name)).toEqual(["Project A", "Project B"]);
+    expect(projects[0].fieldConfigs.map(field => field.key)).toContain("onlyA");
+    expect(projects[0].fieldConfigs.map(field => field.key)).not.toContain("onlyB");
+    expect(projects[1].fieldConfigs.map(field => field.key)).toContain("onlyB");
+    expect(projects[1].fieldConfigs.map(field => field.key)).not.toContain("onlyA");
+    expect(new Set(projects.map(project => project.projectId)).size).toBe(2);
+  });
+
+  it("scopes shared import metadata to the forms of each game", () => {
+    const projects = importProjectsFromJson({
+      _meta: {
+        fieldsConfig: { onlyA: { defaultData: "a" }, onlyB: { defaultData: "b" } },
+        customFields: [{ name: "onlyA" }, { name: "onlyB" }]
+      },
+      forms: [
+        { id: "a", data: { serviceId: "9650", matrixData: "A", tableFormat: "1", onlyA: "a-value" } },
+        { id: "b", data: { serviceId: "9703", matrixData: "K", tableFormat: "1", onlyB: "b-value" } }
+      ]
+    });
+    expect(projects[0].fieldConfigs.map(field => field.key)).not.toContain("onlyB");
+    expect(projects[1].fieldConfigs.map(field => field.key)).not.toContain("onlyA");
+  });
+
+  it("uses the envelope game ID when forms carry project IDs without serviceId", () => {
+    const projects = importProjectsFromJson({
+      _meta: { id: "9650" },
+      forms: [
+        { id: "a", projectId: "project-a", data: { matrixData: "A", tableFormat: "1", onlyA: "a" } },
+        { id: "b", projectId: "project-b", data: { matrixData: "K", tableFormat: "1", onlyB: "b" } }
+      ]
+    });
+    expect(projects).toHaveLength(2);
+    expect(projects.map(project => project.endpoint)).toEqual([
+      "https://cheat.staging.enostd.gay/9650/inputed",
+      "https://cheat.staging.enostd.gay/9650/inputed"
+    ]);
+    const roundTrip = importProjectsFromJson(exportProjectsToJson(projects));
+    expect(roundTrip.map(project => project.uuid)).toEqual(["project-a", "project-b"]);
+    expect(roundTrip[0].fieldConfigs.map(field => field.key)).not.toContain("onlyB");
+    expect(roundTrip[1].fieldConfigs.map(field => field.key)).not.toContain("onlyA");
+  });
+
+  it("still recognizes numeric projectId as a game ID in legacy form exports", () => {
+    const projects = importProjectsFromJson({
+      forms: [
+        { id: "a", projectId: "9650", data: { matrixData: "A", tableFormat: "1" } },
+        { id: "b", data: { projectId: "9703", matrixData: "K", tableFormat: "1" } }
+      ]
+    });
+    expect(projects.map(project => project.serviceId)).toEqual(["9650", "9703"]);
+  });
+});

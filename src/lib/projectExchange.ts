@@ -6,8 +6,9 @@ import {
   defaultPowerUpSymbolCode,
   tableFormatFromMatrix
 } from "./slotPayload";
-import { endpointForEnvironment, normalizeEnvironment } from "./apiEndpoint";
+import { endpointForEnvironment, environmentFromEndpoint, normalizeEnvironment } from "./apiEndpoint";
 import { createUuid } from "./id";
+import { gameResponseProjects, type ProjectImportOptions } from "./gameResponseImport";
 import type { FieldConfig, FieldType, MatrixPreset, Project } from "../types/studio";
 
 type ExternalFieldConfig = {
@@ -141,7 +142,7 @@ function endpointWithServiceId(endpoint: unknown, serviceId: string) {
   if (/\/[^/]+\/inputed/.test(value)) {
     return value.replace(/\/[^/]+\/inputed/, `/${serviceId}/inputed`);
   }
-  return endpointForProject(serviceId, value.includes("cheat.staging.") ? "staging" : "dev");
+  return endpointForProject(serviceId, environmentFromEndpoint(value));
 }
 
 function fieldFromExternal(
@@ -401,6 +402,7 @@ function projectFromExternal(external: ExternalProject, index: number): Project 
     projectId: `project-${projectId}-${external.uuid || index}`,
     uuid: external.uuid || createUuid(),
     name: external.name || projectId,
+    serviceId: projectId,
     endpoint: endpointForProject(projectId, external.environment),
     tableFormatKey: external.tableFormatKey,
     token: "",
@@ -412,11 +414,13 @@ function projectFromExternal(external: ExternalProject, index: number): Project 
   };
 }
 
-function savedFormProjectId(form: ExternalSavedForm, fallbackId: unknown) {
+function savedFormServiceId(form: ExternalSavedForm, fallbackId: unknown) {
   const data = form.data ?? {};
+  const legacyProjectId = data.projectId ?? data.project_id ?? form.projectId;
+  const legacyServiceId = /^\d+$/.test(asString(legacyProjectId)) ? legacyProjectId : undefined;
   return asString(
-    data.serviceId ?? data.projectId ?? data.gameId ?? data.service_id ?? data.project_id ?? form.projectId,
-    fallbackId
+    data.serviceId ?? data.gameId ?? data.service_id ?? legacyServiceId ?? fallbackId ?? legacyProjectId,
+    DEFAULT_SERVICE_ID
   );
 }
 
@@ -448,21 +452,24 @@ function scopedCustomFields(customFields: ExternalCustomField[] | undefined, for
 
 function projectsFromSavedFormsEnvelope(envelope: ExternalSavedFormsEnvelope): Project[] {
   const meta = envelope._meta ?? {};
-  const fallbackId = meta.id || DEFAULT_SERVICE_ID;
-  const groupedForms = new Map<string, ExternalSavedForm[]>();
+  const groupedForms = new Map<string, { serviceId: string; identity: string; forms: ExternalSavedForm[] }>();
 
   for (const form of envelope.forms ?? []) {
-    const projectId = savedFormProjectId(form, fallbackId);
-    groupedForms.set(projectId, [...(groupedForms.get(projectId) ?? []), form]);
+    const serviceId = savedFormServiceId(form, meta.id);
+    const identity = asString(form.projectId ?? form.data?.projectId ?? form.data?.project_id, serviceId);
+    const key = JSON.stringify([serviceId, identity]);
+    const group = groupedForms.get(key) ?? { serviceId, identity, forms: [] };
+    group.forms.push(form);
+    groupedForms.set(key, group);
   }
 
-  return Array.from(groupedForms.entries()).map(([projectId, forms], index) => {
+  return Array.from(groupedForms.values()).map(({ serviceId, identity, forms }, index) => {
     const firstForm = forms[0];
     return projectFromExternal(
       {
-        uuid: index === 0 ? meta.uuid : undefined,
-        id: projectId,
-        name: savedFormProjectName(firstForm, meta.projectName || projectId),
+        uuid: identity !== serviceId ? identity : index === 0 ? meta.uuid : undefined,
+        id: serviceId,
+        name: savedFormProjectName(firstForm, meta.projectName || identity),
         environment: firstForm?.environment || meta.environment,
         fieldsConfig: scopedFieldsConfig(meta.fieldsConfig, forms),
         customFields: scopedCustomFields(meta.customFields, forms),
@@ -515,10 +522,13 @@ function projectFromSnapshotForms(envelope: SnapshotFormsEnvelope): Project {
   }, 0);
 }
 
-export function importProjectsFromJson(value: unknown): Project[] {
+export function importProjectsFromJson(value: unknown, options: ProjectImportOptions = {}): Project[] {
   if (Array.isArray(value) && value.every(isProject)) {
     return value.map(normalizeImportedProject);
   }
+
+  const responses = gameResponseProjects(value, options);
+  if (responses) return responses.projects.map(projectFromExternal).map(normalizeImportedProject);
 
   if (isRecord(value)) {
     if (Array.isArray(value.forms) && (isRecord(value.projectSnapshot) || isRecord(value.project))) {
@@ -539,9 +549,9 @@ export function importProjectsFromJson(value: unknown): Project[] {
   throw new Error("Unsupported project JSON format");
 }
 
-export async function importProjectsFromJsonFile(file: File): Promise<Project[]> {
+export async function importProjectsFromJsonFile(file: File, options: ProjectImportOptions = {}): Promise<Project[]> {
   const text = await file.text();
-  return importProjectsFromJson(JSON.parse(text));
+  return importProjectsFromJson(JSON.parse(text), { ...options, sourceName: file.name });
 }
 
 function fieldConfigsToExternal(fields: FieldConfig[]) {

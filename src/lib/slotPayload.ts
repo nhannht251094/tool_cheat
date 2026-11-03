@@ -1,4 +1,5 @@
 import { matrixToRaw } from "./matrix";
+import { DEFAULT_ENVIRONMENT, endpointForEnvironment } from "./apiEndpoint";
 
 export type SlotFormPayload = {
   serviceId: string;
@@ -9,7 +10,7 @@ export type SlotFormPayload = {
 
 export const DEFAULT_SERVICE_ID = "9703";
 export const DEFAULT_USER_ID = "game_rampusd01";
-export const DEFAULT_ENDPOINT = "https://cheat.dev.enostd.gay/9703/inputed";
+export const DEFAULT_ENDPOINT = endpointForEnvironment(DEFAULT_SERVICE_ID, DEFAULT_ENVIRONMENT);
 
 export function tableFormatFromMatrix(rows: number, cols: number) {
   return Array.from({ length: cols }, () => String(rows)).join(",");

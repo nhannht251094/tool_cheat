@@ -69,7 +69,7 @@ export default function App() {
   async function importJsonFile(file: File) {
     setJsonDropState("importing");
     try {
-      importProjects(await importProjectsFromJsonFile(file));
+      importProjects(await importProjectsFromJsonFile(file, { environment: apiRequest.environment }));
       clearDropMessageLater("done");
     } catch (error) {
       clearDropMessageLater("error");
@@ -204,7 +204,7 @@ export default function App() {
       window.removeEventListener("drop", handleDrop);
       if (dropMessageTimerRef.current) window.clearTimeout(dropMessageTimerRef.current);
     };
-  }, [importProjects]);
+  }, [importProjects, apiRequest.environment]);
 
   useEffect(() => {
     if (!activeProject) return;

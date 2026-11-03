@@ -1,9 +1,10 @@
 import type { Environment } from "../types/studio";
 
 export const ENVIRONMENTS: Environment[] = ["DEV", "STAGING"];
+export const DEFAULT_ENVIRONMENT: Environment = "STAGING";
 
 export function normalizeEnvironment(value: unknown): Environment {
-  return String(value).toUpperCase() === "STAGING" ? "STAGING" : "DEV";
+  return String(value).trim().toUpperCase() === "DEV" ? "DEV" : DEFAULT_ENVIRONMENT;
 }
 
 export function endpointForEnvironment(serviceId: unknown, environment: Environment) {
@@ -12,5 +13,5 @@ export function endpointForEnvironment(serviceId: unknown, environment: Environm
 }
 
 export function environmentFromEndpoint(endpoint: string): Environment {
-  return endpoint.includes("cheat.staging.") ? "STAGING" : "DEV";
+  return endpoint.includes("cheat.dev.") ? "DEV" : DEFAULT_ENVIRONMENT;
 }

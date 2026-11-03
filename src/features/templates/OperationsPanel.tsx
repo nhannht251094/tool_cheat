@@ -59,6 +59,7 @@ export function OperationsPanel() {
     projects,
     activeProjectId,
     activePresetId,
+    apiRequest,
     importProjects,
     loadPreset,
     savePreset,
@@ -158,7 +159,7 @@ export function OperationsPanel() {
   async function handleImport(file?: File) {
     if (!file) return;
     try {
-      importProjects(await importProjectsFromJsonFile(file));
+      importProjects(await importProjectsFromJsonFile(file, { environment: apiRequest.environment }));
       notify("Project data imported.", "success");
     } catch (error) {
       notify(error instanceof Error ? error.message : "Import failed", "error");
